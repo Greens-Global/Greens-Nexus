@@ -9,8 +9,9 @@
 // Every figure leads somewhere: a KPI opens the list behind it (`go(tab,
 // section, filter)` - another tab if that is where the list lives), a chart
 // bar filters or narrows, and a tenant's name opens them in Cubby.
-import { useEffect, useState } from 'react';
-import { ArrowUpRight, ChevronLeft, ChevronRight, ExternalLink, Search, X } from 'lucide-react';
+import { useEffect } from 'react';
+import { ArrowUpRight, ExternalLink, X } from 'lucide-react';
+import OpsGrid from './OpsGrid';
 import { formatDate } from '../lib/datetime';
 import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, attentionItems, collectionSeries, count, historyWindow, money, pastDueTrend, pct, periodStats, tidy } from './model';
 import { mailboxOccupancy, rentedAll, storageOccupancy, storageRent } from './occupancy';
@@ -78,53 +79,13 @@ const haystack = (r) => SEARCH_KEYS.map((k) => (typeof r[k] === 'string' ? r[k] 
 // A table that never makes the page longer: `limit` rows at a time with a
 // pager, and a search box once there is more than one page (402 off-market
 // units are found by typing the unit, not by scrolling). `columns` is
-// [{ head, cell, num }]; a column with `when: false` is left out.
-function Rows({ columns, rows, empty, limit = 8, label = 'rows' }) {
-  const [page, setPage] = useState(0);
-  const [query, setQuery] = useState('');
-  const cols = columns.filter((c) => c.when !== false);
-  if (!rows.length) return <div className="ops-empty">{empty}</div>;
-  const q = query.trim().toLowerCase();
-  const found = q ? rows.filter((r) => haystack(r).includes(q)) : rows;
-  const pages = Math.max(1, Math.ceil(found.length / limit));
-  const at = Math.min(page, pages - 1);
-  const shown = found.slice(at * limit, at * limit + limit);
-  const paged = rows.length > limit;
-  return (
-    <>
-      {paged && (
-        <label className="ops-search">
-          <Search size={14} aria-hidden="true" />
-          <input type="search" value={query} placeholder={`Search ${count(rows.length)} ${label}`} aria-label={`Search ${label}`}
-            onChange={(e) => { setQuery(e.target.value); setPage(0); }} />
-        </label>
-      )}
-      {shown.length ? (
-        <div className="req-table-wrapper">
-          <table className="req-table stack-table">
-            <thead><tr>{cols.map((c) => <th key={c.head} className={c.num ? 'num' : undefined}>{c.head}</th>)}</tr></thead>
-            <tbody>
-              {shown.map((r, i) => (
-                <tr key={at * limit + i}>{cols.map((c) => <td key={c.head} data-th={c.head} className={c.num ? 'num' : undefined}>{c.cell(r)}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : <div className="ops-empty">Nothing matches "{query.trim()}".</div>}
-      {paged && (
-        <div className="ops-pager">
-          <span aria-live="polite">
-            {found.length ? `${count(at * limit + 1)}-${count(at * limit + shown.length)} of ${count(found.length)}` : '0 results'}
-            {q && found.length !== rows.length ? ` (${count(rows.length)} in all)` : ''}
-          </span>
-          <span className="ops-pager-btns">
-            <button type="button" className="secondary-btn" onClick={() => setPage(at - 1)} disabled={at === 0} aria-label={`Previous ${label}`}><ChevronLeft size={15} aria-hidden="true" /></button>
-            <button type="button" className="secondary-btn" onClick={() => setPage(at + 1)} disabled={at >= pages - 1} aria-label={`Next ${label}`}><ChevronRight size={15} aria-hidden="true" /></button>
-          </span>
-        </div>
-      )}
-    </>
-  );
+// [{ head, cell, num }]; a column with `when: false` is left out. Since the
+// Oct 28 2026 call (B5 / B6 / B8) it is OpsGrid: the same Columns, sort,
+// filters, frozen header and Export as every table in the module, kept per
+// person under `id`.
+function Rows({ id, title, columns, rows, empty, limit = 8, label = 'rows' }) {
+  return <OpsGrid tableKey={`tabs:${id || label}`} title={title || label} columns={columns} rows={rows} empty={empty} limit={limit} label={label}
+    searchText={haystack} />;
 }
 
 // Rented / vacant / off-market as one thin bar, sized for a table cell.
@@ -206,7 +167,7 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
 
       {many && (
         <Card title="Facility Scorecard" sub="Select a facility for its figures, or a number for the list behind it">
-          <Rows limit={20} label="facilities" empty="No facilities." rows={facilities} columns={[
+          <Rows id="scorecard" title="Facility Scorecard" limit={20} label="facilities" empty="No facilities." rows={facilities} columns={[
             { head: 'Facility', cell: (f) => <button type="button" className="ops-cell" onClick={() => onPick(f.id)}>{f.shortName}</button> },
             { head: 'Units', num: true, cell: (f) => count(f.units.total) },
             { head: 'Occupancy', num: true, cell: (f) => { const o = storageOccupancy(f.units); return <button type="button" className="ops-cell" onClick={() => onJump('units', f.shortName, 'unit-types')}>{pct(o.rented, o.rentable)}</button>; } },
@@ -280,7 +241,7 @@ export function Collections({ data, scope, trend, many, range, focus, go }) {
             <X size={13} aria-hidden="true" /><span className="sr-only">Clear filter</span>
           </button>
         )}>
-        <Rows key={filter || 'all'} label="tenants" empty={filter ? 'No tenants match this filter.' : 'Nobody is past due.'} rows={rows} columns={[
+        <Rows id="past-due" title="Tenants Past Due" key={filter || 'all'} label="tenants" empty={filter ? 'No tenants match this filter.' : 'Nobody is past due.'} rows={rows} columns={[
           { head: 'Unit', cell: (r) => strong(r.unit) },
           { head: 'Tenant', cell: (r) => <Tenant row={r} /> },
           facilityCol(many),
@@ -295,7 +256,7 @@ export function Collections({ data, scope, trend, many, range, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="failed" focus={focus} title="Failed Payments" sub="Declined or returned, most recent first. Listed for the last 31 days; a name opens the tenant in Cubby, where the attempt is under Payments.">
-          <Rows limit={6} label="payments" empty="No failed payments listed for this period." rows={stats.failedRows} columns={[
+          <Rows id="failed" title="Failed Payments" limit={6} label="payments" empty="No failed payments listed for this period." rows={stats.failedRows} columns={[
             { head: 'Date', cell: (r) => formatDate(r.date) },
             { head: 'Tenant', cell: (r) => <Tenant row={r} fallback="Former tenant" /> },
             { head: 'Units Rented', cell: (r) => r.unit || '-' },
@@ -339,7 +300,7 @@ export function Units({ data, many, focus, go }) {
 
       <Card id="unit-types" focus={focus} title="Unit Types" sub="Most empty rent first. The bar shows each type's rented, vacant and off-market units."
         right={<Legend items={[['Rented', 'var(--ops-s1)'], ['Vacant', 'var(--ops-s2)'], ['Off Market', 'var(--ops-neutral)']]} />}>
-        <Rows label="unit types" empty="No units." rows={data.unitTypes} columns={[
+        <Rows id="unit-types" title="Unit Types" label="unit types" empty="No units." rows={data.unitTypes} columns={[
           { head: 'Unit Type', cell: (t) => strong(t.name) },
           { head: 'Units', num: true, cell: (t) => count(t.total) },
           { head: 'Mix', cell: (t) => <MixBar rented={t.rented} vacant={t.vacant} off={t.unavailable} /> },
@@ -354,7 +315,7 @@ export function Units({ data, many, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="below-street" focus={focus} title="Tenants Under Street Rate" sub="Rent-increase candidates, largest gap first">
-          <Rows limit={6} label="tenants" empty="Every tenant is at or above the street rate." rows={data.belowStreet} columns={[
+          <Rows id="below-street" title="Tenants Under Street Rate" limit={6} label="tenants" empty="Every tenant is at or above the street rate." rows={data.belowStreet} columns={[
             { head: 'Unit', cell: (r) => strong(r.unit) },
             { head: 'Tenant', cell: (r) => <Tenant row={r} /> },
             facilityCol(many),
@@ -365,7 +326,7 @@ export function Units({ data, many, focus, go }) {
           ]} />
         </Card>
         <Card id="off-market" focus={focus} title="Off-Market Units" sub="Storage units that cannot be rented, and why. Mailboxes are not listed.">
-          <Rows limit={6} label="units" empty="Every unit can be rented." rows={data.offMarket} columns={[
+          <Rows id="off-market" title="Off-Market Units" limit={6} label="units" empty="Every unit can be rented." rows={data.offMarket} columns={[
             { head: 'Unit', cell: (r) => strong(r.unit) },
             facilityCol(many),
             { head: 'Unit Type', cell: (r) => r.type },
@@ -416,16 +377,16 @@ export function Worklist({ data, many, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="locks-place" focus={focus} title="Overlocks to Place" sub="Cubby flags these units as needing a lock">
-          <Rows limit={6} label="units" empty="No units need an overlock." rows={data.locks.toPlace} columns={lockCols} />
+          <Rows id="locks-place" title="Overlocks to Place" limit={6} label="units" empty="No units need an overlock." rows={data.locks.toPlace} columns={lockCols} />
         </Card>
         <Card id="locks-remove" focus={focus} title="Locks to Remove" sub="Paid up, lock still on">
-          <Rows limit={6} label="units" empty="No locks waiting to come off." rows={data.locks.toRemove} columns={lockCols} />
+          <Rows id="locks-remove" title="Locks to Remove" limit={6} label="units" empty="No locks waiting to come off." rows={data.locks.toRemove} columns={lockCols} />
         </Card>
       </div>
 
       <div className="ops-grid-2">
         <Card id="tasks" focus={focus} title="Open Tasks" sub="From Cubby, earliest due date first">
-          <Rows limit={6} label="tasks" empty="No open tasks." rows={data.tasks.rows} columns={[
+          <Rows id="tasks" title="Open Tasks" limit={6} label="tasks" empty="No open tasks." rows={data.tasks.rows} columns={[
             { head: 'Task', cell: (r) => strong(r.title) },
             { head: 'Unit', cell: (r) => r.unit || '-' },
             facilityCol(many),
@@ -434,7 +395,7 @@ export function Worklist({ data, many, focus, go }) {
           ]} />
         </Card>
         <Card id="leads" focus={focus} title="Open Leads" sub="Longest wait first">
-          <Rows limit={6} label="leads" empty="No open leads." rows={data.leads.rows} columns={[
+          <Rows id="leads" title="Open Leads" limit={6} label="leads" empty="No open leads." rows={data.leads.rows} columns={[
             { head: 'Status', cell: (r) => badge(r.status === 'NEW' ? 'status-pending' : r.status === 'RESERVATION' ? 'status-approved' : 'pill-muted', LEAD_STATUS[r.status] || 'Open') },
             { head: 'Name', cell: (r) => <Tenant row={r} /> },
             { head: 'Source', cell: (r) => tidy(r.source) || '-' },
@@ -448,10 +409,10 @@ export function Worklist({ data, many, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="move-outs" focus={focus} title="Scheduled Move-Outs" sub="Units about to come back on the market">
-          <Rows limit={6} label="move-outs" empty="No move-outs scheduled." rows={data.moves.movingOut} columns={moveCols('Moving Out')} />
+          <Rows id="move-outs" title="Scheduled Move-Outs" limit={6} label="move-outs" empty="No move-outs scheduled." rows={data.moves.movingOut} columns={moveCols('Moving Out')} />
         </Card>
         <Card title="Upcoming Move-Ins" sub="Leases signed with a future start date">
-          <Rows limit={6} label="move-ins" empty="No move-ins booked ahead." rows={data.moves.movingIn} columns={moveCols('Moving In')} />
+          <Rows id="move-ins" title="Upcoming Move-Ins" limit={6} label="move-ins" empty="No move-ins booked ahead." rows={data.moves.movingIn} columns={moveCols('Moving In')} />
         </Card>
       </div>
     </>

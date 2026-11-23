@@ -368,3 +368,91 @@ def letters_pdf(batch, changes, today: date) -> bytes:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ── A tenant's rate history (Oct 28 2026 call with Neil, B16) ────────────────
+#
+# Every rate a tenant has paid, newest last: their Hummingbird months before
+# the Cubby cutover (hb_lease_months - one rent per month; a change is a month
+# whose rent differs from the one before), the rent changes Nexus put into
+# Cubby (ops_revenue_changes entered or pushed), and today's rent from Cubby
+# with its lastRentChangeDate. Upcoming: Cubby's scheduled change and any open
+# Nexus batch. Read per call, never stored.
+
+CUBBY_CUTOVER = "2026-09-15"
+
+
+def rate_history(t: dict, hb_months: list[tuple[str, float | None]], hb_start: str = "",
+                 nexus: list[dict] | None = None, today: date | None = None) -> list[dict]:
+    """[{date, rent, change, source, kind, note}] oldest first.
+
+    t          the tenant row (tenant_rows): rent, moveIn, lastIncrease, ...
+    hb_months  [(YYYY-MM, rent in dollars)] of the matching Hummingbird lease
+    hb_start   that lease's move-in day
+    nexus      [{date, from, to}] rent changes Nexus put in Cubby"""
+    today_s = (today or date.today()).isoformat()
+    events: list[dict] = []
+
+    def add(day, cents, source, kind, note=""):
+        events.append({"date": day or "", "rent": int(cents), "source": source, "kind": kind, "note": note})
+
+    prev = None
+    for month, rent in sorted(hb_months):
+        if rent is None:
+            continue
+        cents = int(round(float(rent) * 100))
+        if prev is None:
+            add(hb_start or t.get("moveIn") or f"{month}-01", cents, "Hummingbird", "Move-In")
+        elif cents != prev:
+            add(f"{month}-01", cents, "Hummingbird", "Rent Change")
+        prev = cents
+    for c in sorted(nexus or [], key=lambda c: c.get("date") or ""):
+        if c.get("date") and c["date"] <= today_s and c.get("to") is not None:
+            add(c["date"], c["to"], "Nexus Rent Change", "Rent Change")
+    rent = int(t.get("rent") or 0)
+    if not events:
+        add(t.get("moveIn"), rent, "Cubby", "Move-In",
+            "" if not t.get("lastIncrease") else "The rent at move-in is not in Cubby; this is today's rent.")
+    else:
+        last = max(events, key=lambda e: e["date"])
+        if last["rent"] != rent:
+            when = t.get("lastIncrease") or ""
+            note = "" if when else "Changed in Cubby; Cubby does not say on which day."
+            add(when or max(CUBBY_CUTOVER, last["date"]), rent, "Cubby", "Rent Change", note)
+    events.sort(key=lambda e: e["date"])
+    # One line per day and rent: the same change seen in two places reads once.
+    out: list[dict] = []
+    for e in events:
+        if out and out[-1]["date"] == e["date"] and out[-1]["rent"] == e["rent"]:
+            continue
+        out.append(e)
+    for i, e in enumerate(out):
+        e["change"] = e["rent"] - out[i - 1]["rent"] if i else None
+        e["changePct"] = round(e["change"] / out[i - 1]["rent"] * 100, 1) if i and out[i - 1]["rent"] else None
+    return out
+
+
+def upcoming(t: dict) -> list[dict]:
+    """The changes still to come: Cubby's scheduled one, an open Nexus batch."""
+    out = []
+    if t.get("scheduled"):
+        s = t["scheduled"]
+        out.append({"date": s["date"], "rent": s["amount"], "source": "Cubby", "kind": "Scheduled in Cubby",
+                    "change": s["amount"] - int(t.get("rent") or 0)})
+    if t.get("pending"):
+        p = t["pending"]
+        out.append({"date": p.get("effective") or "", "rent": None, "source": "Nexus Rent Change",
+                    "kind": f"In a {p.get('status', '').title()} Batch", "change": None, "batchId": p.get("batchId")})
+    return out
+
+
+def eligibility(t: dict, strategies: list[dict], today: date) -> list[dict]:
+    """Each active strategy's answer for this tenant, on the earliest day its
+    notice allows: eligible with the new rent, or the reasons not."""
+    out = []
+    for s in strategies:
+        eff = earliest_effective(today, s.get("noticeDays") or DEFAULT_NOTICE_DAYS)
+        p = propose(s, t, eff)
+        out.append({"strategyId": s.get("id"), "strategy": s.get("name"), "summary": describe(s), "effective": eff.isoformat(),
+                    "eligible": p["eligible"], "reasons": p["reasons"], "newRent": p["newRent"], "increase": p["increase"]})
+    return out

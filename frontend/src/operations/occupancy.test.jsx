@@ -114,4 +114,14 @@ describe('the mailbox rule on screen', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(saveOpsUnitClasses).toHaveBeenCalledWith({ mailbox: ['mailbox', 'PO Box'], excluded: ['deactivated'] });
   });
+
+  it('keeps the non-standard words beside them (Oct 28 2026, B9)', async () => {
+    saveOpsUnitClasses.mockReset().mockResolvedValue({});
+    render(<UnitClasses rules={{ ...rules, nonstandard: ['business class', 'dump'] }} canEdit onSaved={() => {}} />);
+    expect(screen.getByText(/Non-standard: the unit type name contains "business class" or "dump"/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+    fireEvent.change(screen.getByLabelText(/Non-standard when/), { target: { value: 'business class, dump, residential' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(saveOpsUnitClasses).toHaveBeenCalledWith(expect.objectContaining({ nonstandard: ['business class', 'dump', 'residential'] })));
+  });
 });

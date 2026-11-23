@@ -634,3 +634,17 @@ th.num .ops-hf-pop { left: auto; right: 0; }
   .ops-scroll { max-height: none; }
   .ops-sticky thead th { position: static; }
 }
+
+/* Revenue Management: a tenant's rents (B16). */
+.ops-th-sheet { display: flex; flex-direction: column; gap: 18px; }
+.ops-th-sheet .ops-rc-title { margin-bottom: 4px; }
+.ops-rc-name.is-plain { cursor: default; font-weight: 600; }
+.ops-rc-name.is-plain:hover { color: var(--ink); }
+.ops-rc-row.is-withdrawn .ops-th-text { text-decoration: line-through; color: var(--muted); }
+.ops-th-text { font-size: var(--fs-body); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ops-th-add { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.ops-th-add textarea { resize: vertical; font: 400 var(--fs-body)/1.4 'Inter', sans-serif; }
+.ops-th-add-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ops-th-hold { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--ink); }
+/* A state as plain words in the row's line (no pill - Neil, 11/17/2026). */
+.ops-state { display: block; font-size: var(--fs-label); color: var(--muted); }

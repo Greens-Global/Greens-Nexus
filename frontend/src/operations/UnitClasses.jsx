@@ -28,7 +28,9 @@ export default function UnitClasses({ rules, canEdit, onSaved }) {
     setBusy(true);
     setError('');
     try {
-      await api.saveOpsUnitClasses({ mailbox: parse(mailbox), excluded: parse(excluded), nonstandard: parse(nonstandard) });
+      // An older server sends no non-standard list: say nothing about it rather than empty it.
+      await api.saveOpsUnitClasses({ mailbox: parse(mailbox), excluded: parse(excluded),
+        ...(rules.nonstandard ? { nonstandard: parse(nonstandard) } : {}) });
       setEditing(false);
       onSaved?.();
     } catch (err) {
@@ -57,10 +59,12 @@ export default function UnitClasses({ rules, canEdit, onSaved }) {
             <span>Not a unit when the unit type contains (comma-separated)</span>
             <input className="form-input" value={excluded} maxLength={600} onChange={(e) => setExcluded(e.target.value)} />
           </label>
-          <label style={{ display: 'grid', gap: 4 }}>
-            <span>Non-standard when the unit type contains (comma-separated)</span>
-            <input className="form-input" value={nonstandard} maxLength={600} onChange={(e) => setNonstandard(e.target.value)} />
-          </label>
+          {rules.nonstandard && (
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span>Non-standard when the unit type contains (comma-separated)</span>
+              <input className="form-input" value={nonstandard} maxLength={600} onChange={(e) => setNonstandard(e.target.value)} />
+            </label>
+          )}
           {error && <div role="alert" style={{ color: 'var(--danger, #b42318)' }}>{error}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" className="primary-btn" disabled={busy}>Save</button>

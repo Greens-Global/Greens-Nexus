@@ -167,7 +167,7 @@ export default function ReportLibrary({ reports, categories, favorites, recent, 
                       title={on ? 'Unpin' : 'Pin to Monthly Required'} onClick={() => center.togglePin(pin)}>
                       <Pin size={14} fill={on ? 'currentColor' : 'none'} />
                     </button>
-                    <HoldButton label="Delete" size="sm" holdMs={HOLD_RECORD_MS} ariaLabel={`Hold to delete ${m.name}`}
+                    <HoldButton label="Delete" size="sm" holdMs={HOLD_RECORD_MS} ariaLabel={`Delete ${m.name}`}
                       onConfirm={() => center.forget(m.id)} doneLabel="Deleted" />
                   </div>
                 </li>
