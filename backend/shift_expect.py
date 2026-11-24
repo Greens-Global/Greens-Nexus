@@ -23,6 +23,12 @@ The rule (`pick_start`):
      preset grace_min when it has a preset, else the company default
      (`default_grace_min`). Zone = the placement's own timezone column, else
      its preset's, else the team zone.
+  1b. A WEEK THE MANAGER SCHEDULED leaves no room for the preset: when the
+     person has any published placement in the same planner week (the
+     company's `weekStart`, Monday by default) but none on this date, the
+     day is a day off and nothing is expected (Amy Bolanos, 11/23/2026:
+     Vicki Hale, off on Monday with shifts Wed and Sat, showed as Late from
+     her "Usual 8:30a - 5:30p" preset).
   2. Else the person's assigned Shift preset, on its working days
      (`days` = ISO weekday numbers "1,2,3,4,5", Mon=1): start/end/grace/zone
      from the preset, zone falling back to the team zone.
@@ -151,13 +157,50 @@ def _is_live(row) -> bool:
     return (getattr(row, "weather_status", "") or "") != "cancelled"
 
 
+def week_bounds(dd: date, week_start: str = "monday") -> tuple:
+    """(first, last) date of the planner week holding `dd` - the week starts
+    on Sunday when `week_start` is "sunday", else on Monday."""
+    back = dd.isoweekday() % 7 if str(week_start or "").lower() == "sunday" else dd.isoweekday() - 1
+    first = dd - timedelta(days=back)
+    return first, first + timedelta(days=6)
+
+
+def week_start_of(db: Session, company_id: str = "") -> str:
+    """The planner's week start for a company (Shifts settings `weekStart`)."""
+    return "sunday" if str(_settings(db, company_id).get("weekStart") or "").lower() == "sunday" else "monday"
+
+
+def _scheduled_weeks(db: Session, emails_l: list, days: list, week_start_by_email: dict) -> set:
+    """{(email, week first day)} for every person in `emails_l` with a
+    published placement in the planner week of any date in `days`."""
+    if not emails_l or not days:
+        return set()
+    lo = min(week_bounds(d, "sunday")[0] for d in days)
+    hi = max(week_bounds(d, "monday")[1] for d in days)
+    out = set()
+    for em, wd in (db.query(models.ScheduledShift.employee_email, models.ScheduledShift.work_date)
+                   .filter(func.lower(models.ScheduledShift.employee_email).in_(emails_l),
+                           models.ScheduledShift.work_date >= lo.isoformat(),
+                           models.ScheduledShift.work_date <= hi.isoformat(),
+                           models.ScheduledShift.published == 1).all()):
+        try:
+            d = date.fromisoformat((wd or "")[:10])
+        except ValueError:
+            continue
+        e = (em or "").lower()
+        out.add((e, week_bounds(d, week_start_by_email.get(e, "monday"))[0]))
+    return out
+
+
 def pick_start(placed_rows: Iterable, presets_by_id: dict, assigned_shift_id: str, dd: date,
-               team_tz: str, default_grace: int) -> Optional[dict]:
+               team_tz: str, default_grace: int, week_scheduled: bool = False) -> Optional[dict]:
     """The expected shift for one person on `dd`, or None. Pure: works on
     rows already in hand (see the module docstring for the rule).
 
     Returns {start, end, grace, tz, source: 'scheduled'|'preset', shiftId,
-    rowId}; start/end are HH:MM wall-clock in `tz`."""
+    rowId}; start/end are HH:MM wall-clock in `tz`. `week_scheduled` = the
+    person has a published placement elsewhere in this planner week (rule
+    1b: then a day with none is a day off, never the preset)."""
     iso = dd.isoformat()
     fallback_tz = (team_tz or "").strip() or DEFAULT_TEAM_TZ
     presets = presets_by_id or {}
@@ -176,6 +219,8 @@ def pick_start(placed_rows: Iterable, presets_by_id: dict, assigned_shift_id: st
         return {"start": first.start_hhmm or _FALLBACK_START, "end": first.end_hhmm or "",
                 "grace": _grace_of(preset, default_grace), "tz": tz, "source": "scheduled",
                 "shiftId": first.shift_id or "", "rowId": first.id or ""}
+    if week_scheduled:
+        return None        # rule 1b: the manager scheduled this week and left this day off
     preset = presets.get(assigned_shift_id or "") if assigned_shift_id else None
     if preset is None or dd.isoweekday() not in preset_days(preset):
         return None
@@ -219,8 +264,12 @@ def expected_starts(db: Session, emails: Iterable[str], dd: date) -> dict:
     # Off the schedule (shift_roster, 11/03/2026): nothing is expected, so never Late.
     off = {(e.work_email or "").lower() for e in db.query(models.NexusEmployee)
            .filter(func.lower(models.NexusEmployee.work_email).in_(emails_l), models.NexusEmployee.on_schedule == 0).all()}
+    week_start = {c: week_start_of(db, c) for c in defaults}
+    ws_by_email = {em: week_start[company.get(em, "")] for em in emails_l}
+    weeks = _scheduled_weeks(db, emails_l, [dd], ws_by_email)
     return {em: (None if em in off else
-                 pick_start(by_email.get(em, []), presets, assigned.get(em, ""), dd, *defaults[company.get(em, "")]))
+                 pick_start(by_email.get(em, []), presets, assigned.get(em, ""), dd, *defaults[company.get(em, "")],
+                            week_scheduled=(em, week_bounds(dd, ws_by_email[em])[0]) in weeks))
             for em in emails_l}
 
 
@@ -253,12 +302,15 @@ def expected_shifts(db: Session, email: str, dates: Iterable[date]) -> dict:
     presets = ({p.id: p for p in db.query(models.Shift).filter(models.Shift.id.in_(sorted(preset_ids))).all()}
                if preset_ids else {})
     tz_default, grace_default = defaults_for(db, em)
+    ws = week_start_of(db, companies_of(db, [em]).get(em, ""))
+    weeks = _scheduled_weeks(db, [em], days, {em: ws})
     out: dict = {}
     for dd in days:
         iso = dd.isoformat()
         todays = [r for r in rows if (r.work_date or "") == iso]
         if not todays:
-            first = pick_start([], presets, assigned, dd, tz_default, grace_default)
+            first = pick_start([], presets, assigned, dd, tz_default, grace_default,
+                               week_scheduled=(em, week_bounds(dd, ws)[0]) in weeks)
             out[dd] = [first] if first else []
             continue
         live = sorted((r for r in todays if _is_live(r)),

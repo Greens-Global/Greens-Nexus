@@ -447,7 +447,12 @@ def expected_for_day(emp, dd: date, ctx: dict, cfg: dict) -> dict:
     placed = ctx["scheduled"].get(em, {}).get(iso) or []
     # Start / grace / zone: the one rule (shift_expect) - a cancelled day has
     # none, so it is never late. The MINUTES below are this module's own.
-    exp = shift_expect.pick_start(placed, ctx["presets"], ctx["assigned"].get(em, ""), dd, *_defaults_of(emp, ctx))
+    # The scorecard week is one planner week: a placement on any of its days
+    # means the manager scheduled it, so a day with none is a day off
+    # (shift_expect rule 1b) - never the preset or the standard day.
+    week_scheduled = bool(ctx["scheduled"].get(em))
+    exp = shift_expect.pick_start(placed, ctx["presets"], ctx["assigned"].get(em, ""), dd, *_defaults_of(emp, ctx),
+                                  week_scheduled=week_scheduled)
     if exp:
         out.update(start=exp["start"], grace=exp["grace"], tz=exp["tz"])
     if placed:
@@ -461,6 +466,8 @@ def expected_for_day(emp, dd: date, ctx: dict, cfg: dict) -> dict:
         if not live:
             out["reason"] = "weather"
             return out
+    elif week_scheduled:
+        out["source"] = "scheduled"     # a day off in a scheduled week: base stays 0
     else:
         preset = ctx["presets"].get(ctx["assigned"].get(em, ""))
         if preset:
