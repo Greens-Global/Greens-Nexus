@@ -8436,6 +8436,18 @@ def my_schedule_live(user: dict = Depends(get_current_user), db: Session = Depen
             team_day = now.astimezone(shift_expect.zone(cfg.get("timeZone") or _DEFAULT_TEAM_TZ)).date()
             expected = shift_expect.expected_starts(db, candidates, team_day)
             late = [em for em in candidates if shift_expect.late_now(team_day, expected.get(em), now)]
+            if late:
+                # Off today is never Late (Amy Bolanos, 11/23/2026) - the no-show
+                # scan's rule: a full day of approved time off excuses any shift;
+                # time off or a company holiday excuses the usual hours.
+                import shift_attendance
+                iso = team_day.isoformat()
+                off_all_day = shift_attendance._leave_dates(db, late, iso, iso, full_day=True)
+                leave = shift_attendance._leave_dates(db, late, iso, iso)
+                holidays = shift_attendance._holiday_dates(db, shift_attendance._people(db, late), iso, iso)
+                late = [em for em in late if (em, iso) not in off_all_day
+                        and not ((expected.get(em) or {}).get("source") == "preset"
+                                 and ((em, iso) in leave or (em, iso) in holidays))]
     n_in = sum(1 for p in people.values() if p["state"] == "working")
     n_break = sum(1 for p in people.values() if p["state"] == "break")
     counts = {"in": n_in, "break": n_break, "late": len(late),

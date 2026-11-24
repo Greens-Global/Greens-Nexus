@@ -63,18 +63,18 @@ def _at(**ago):
     return (NOW - timedelta(**ago)).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def tearDownModule():
+    database.engine.dispose()
+    try:
+        os.remove(_tmp.name)
+    except (FileNotFoundError, PermissionError):
+        pass
+
+
 class ScheduleLiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(main.app)
-
-    @classmethod
-    def tearDownClass(cls):
-        database.engine.dispose()
-        try:
-            os.remove(_tmp.name)
-        except (FileNotFoundError, PermissionError):
-            pass
 
     def setUp(self):
         self._skip, auth.SKIP_AUTH = auth.SKIP_AUTH, True
@@ -179,3 +179,64 @@ class ScheduleLiveTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OffTodayIsNeverLateTests(ScheduleLiveTests):
+    # Only the tests below; the base class's run once, under their own class.
+    test_late_comes_from_the_expected_start = test_a_leave_punch_is_not_a_clock_in = None
+    test_counts_over_the_people_i_see = test_people_keeps_its_shape = None
+    test_once_clocked_in_no_longer_late = test_no_groups_means_empty_counts = None
+
+    """Amy Bolanos, 11/23/2026: Vicki Hale, off on Monday with shifts on
+    Wednesday and Saturday, showed as Late from her usual-hours preset. Off
+    today is never Late: a day with no placement in a week the manager
+    scheduled (shift_expect rule 1b), a full day of approved time off, or a
+    company holiday standing in for the usual hours."""
+
+    def _other_day_this_week(self) -> str:
+        from datetime import date
+        import shift_expect
+        today = date.fromisoformat(TODAY)
+        first, last = shift_expect.week_bounds(today, "monday")
+        other = today + timedelta(days=1) if today < last else today - timedelta(days=1)
+        self.assertTrue(first <= other <= last)
+        return other.isoformat()
+
+    def test_a_day_off_in_a_scheduled_week_is_not_late(self):
+        self.db.add(models.ScheduledShift(id="ss-slive-other", employee_email=PRESET_LATE,
+                                          work_date=self._other_day_this_week(), start_hhmm="08:30",
+                                          end_hhmm="17:30", published=1, timezone=TZ))
+        self.db.commit()
+        self.assertEqual(self._live()["late"], [LATE])
+
+    def test_an_unshared_week_still_reads_the_usual_hours(self):
+        self.db.add(models.ScheduledShift(id="ss-slive-draft", employee_email=PRESET_LATE,
+                                          work_date=self._other_day_this_week(), start_hhmm="08:30",
+                                          end_hhmm="17:30", published=0, timezone=TZ))
+        self.db.commit()
+        self.assertIn(PRESET_LATE, self._live()["late"])
+
+    def test_a_full_day_of_time_off_is_not_late(self):
+        self.db.query(models.TimeOffRequest).delete()
+        for i, em in enumerate((LATE, PRESET_LATE)):
+            self.db.add(models.TimeOffRequest(id=f"to-slive-{i}", employee_email=em, type="vacation",
+                                              start_date=TODAY, end_date=TODAY, status="approved"))
+        self.db.commit()
+        try:
+            self.assertEqual(self._live()["late"], [])
+        finally:
+            self.db.query(models.TimeOffRequest).delete()
+            self.db.commit()
+
+    def test_a_company_holiday_excuses_the_usual_hours_only(self):
+        self.db.query(models.HrCompanyHoliday).delete()
+        self.db.add(models.HrCompanyHoliday(id="hol-slive", company_id="co-slive", date=TODAY, name="Holiday"))
+        for em in (LATE, PRESET_LATE):
+            self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == em).update({"company": "co-slive"})
+        self.db.commit()
+        try:
+            # A shift the manager placed on the holiday still counts; the usual hours do not.
+            self.assertEqual(self._live()["late"], [LATE])
+        finally:
+            self.db.query(models.HrCompanyHoliday).delete()
+            self.db.commit()
