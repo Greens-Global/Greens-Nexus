@@ -112,6 +112,22 @@ class PickStartTests(unittest.TestCase):
                          "preset")
         self.assertIsNone(se.pick_start([_row("05:00", published=0)], {}, "", THU, LA, 10))
 
+    def test_a_scheduled_week_leaves_no_room_for_the_preset(self):
+        # Rule 1b (Amy Bolanos, 11/23/2026): shifts placed elsewhere in the week
+        # make a day with none a day off - never the usual hours.
+        p = _preset(days="1,2,3,4,5,6")
+        self.assertIsNone(se.pick_start([], {"p1": p}, "p1", THU, LA, 10, week_scheduled=True))
+        placed = se.pick_start([_row("10:00", "18:00")], {"p1": p}, "p1", THU, LA, 10, week_scheduled=True)
+        self.assertEqual(placed["source"], "scheduled")
+
+    def test_week_bounds(self):
+        mon, sun = date(2026, 11, 23), date(2026, 11, 29)
+        self.assertEqual(se.week_bounds(date(2026, 11, 25)), (mon, sun))
+        self.assertEqual(se.week_bounds(mon), (mon, sun))
+        self.assertEqual(se.week_bounds(sun), (mon, sun))
+        self.assertEqual(se.week_bounds(date(2026, 11, 25), "sunday"), (date(2026, 11, 22), date(2026, 11, 28)))
+        self.assertEqual(se.week_bounds(date(2026, 11, 22), "sunday"), (date(2026, 11, 22), date(2026, 11, 28)))
+
 
 class LateTests(unittest.TestCase):
     def test_late_now_on_the_shifts_own_zone(self):
