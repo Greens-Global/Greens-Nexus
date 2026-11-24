@@ -130,11 +130,12 @@ function StatusChip({ label, tone }) {
 }
 
 // ── HR's own signature, full screen (same as the timesheet review) ───────────
+// layer: above this z 4300 screen, or the signature pad opens behind it.
 export function PacketSigner({ partyId, onClose, onDone, toastOk, toastErr }) {
   if (!partyId) return null;
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 4300, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
-      <SignModal partyId={partyId} onClose={onClose} onDone={onDone}
+      <SignModal partyId={partyId} layer={3000} onClose={onClose} onDone={onDone}
         toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
     </div>, document.body);
 }

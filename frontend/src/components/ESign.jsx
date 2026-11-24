@@ -2222,7 +2222,7 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr, layer =
           {/* CA-rule staff: Report a Missed Break instead of signing - the
               time sheet goes back to the manager and signing closes. */}
           {reporting && payload?.breakAttestation && (
-            <BreakAttestModal reviewId={payload.breakAttestation.reviewId} attestation={payload.breakAttestation}
+            <BreakAttestModal reviewId={payload.breakAttestation.reviewId} attestation={payload.breakAttestation} zIndex={layer ? 1400 + layer : undefined}
               toastErr={toastErr} onClose={() => setReporting(false)}
               onSentBack={() => {
                 setReporting(false);
