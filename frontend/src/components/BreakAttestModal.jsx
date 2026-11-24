@@ -46,7 +46,7 @@ export function BreakStatement({ attestation, onReport }) {
   );
 }
 
-export default function BreakAttestModal({ reviewId, attestation, onClose, onSentBack, toastErr }) {
+export default function BreakAttestModal({ reviewId, attestation, onClose, onSentBack, toastErr, zIndex }) {
   const flagged = new Map((attestation?.flaggedDays || []).map(d => [d.date, d]));
   const days = attestation?.workedDays?.length ? attestation.workedDays : [...flagged.keys()];
   const [picks, setPicks] = useState(() => {
@@ -79,7 +79,7 @@ export default function BreakAttestModal({ reviewId, attestation, onClose, onSen
   );
 
   return (
-    <Modal title="Report a Missed Break" onClose={onClose} footer={footer}>
+    <Modal title="Report a Missed Break" onClose={onClose} footer={footer} zIndex={zIndex}>
       <div style={{ display: 'grid', gap: 12 }}>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
           Pick each day and the break you missed. This does not sign your time sheet - it goes back to your manager.

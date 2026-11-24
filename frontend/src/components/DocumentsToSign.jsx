@@ -23,9 +23,12 @@ export default function DocumentsToSign({ focusParty = '', toastOk, toastErr }) 
   useEffect(load, [load]);
   useEffect(() => { if (focusParty) setSigning(focusParty); }, [focusParty]);
 
+  // layer: this screen sits at z 4000, so the signature pad, Decline and
+  // History must open above it - without it the pad opened BEHIND the document
+  // and Sign did nothing (Valinda Cranfill, 11/23/2026; the email's link lands here).
   const signPortal = signing && createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
-      <SignModal partyId={signing} onClose={() => setSigning(null)}
+      <SignModal partyId={signing} layer={3000} onClose={() => setSigning(null)}
         onDone={() => { setSigning(null); load(); }}
         toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
     </div>, document.body);
