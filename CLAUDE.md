@@ -1060,7 +1060,11 @@ keep the diff minimal.
 - **Shifts (Oct 14-15 2026, PRs #589-#594, plan https://claude.ai/artifact/1cU9Zec3fXwyWUrEEAadbN).**
   ONE expected-start / Late rule: `backend/shift_expect.py` (earliest live
   placement for the day - a weather-cancelled day is none, never the preset;
-  else the usual-hours preset on its working days; grace from the shift type,
+  a day with no placement in a planner week where the person HAS a shared
+  shift is a day off, never the preset (11/23/2026, Vicki Hale showed Late
+  on her day off); else the usual-hours preset on its working days; the
+  live strip also excuses approved time off and holidays as the no-show
+  scan does; grace from the shift type,
   else the company's `defaultGraceMin`; zone placement -> shift type -> the
   company's team zone). `timeclock._shift_start_for`, My Team, the Workforce
   Scorecard and the no-show scan all read it - never add a second rule.

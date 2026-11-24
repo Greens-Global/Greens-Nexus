@@ -247,8 +247,10 @@ class ExpectationTests(_Case):
         amy = self._row(AMY)
         tue, wed, thu = amy["days"][1], amy["days"][2], amy["days"][3]
         self.assertEqual((tue["expectedMin"], tue["source"], tue["shiftStart"]), (240 + 120, "scheduled", "08:00"))
-        self.assertEqual((wed["expectedMin"], wed["source"]), (480, "preset"))
-        self.assertEqual((thu["expectedMin"], thu["source"]), (480, "preset"))
+        # A week the manager shared leaves no room for the preset (shift_expect
+        # rule 1b, 11/23/2026): a day with no live placement is a day off.
+        self.assertEqual((wed["expectedMin"], wed["source"], wed["shiftStart"]), (0, "scheduled", ""))
+        self.assertEqual((thu["expectedMin"], thu["source"]), (0, "scheduled"))
 
     def test_a_weather_cancelled_placement_expects_nothing(self):
         """A day the company called off for weather is not an absence: the
@@ -271,7 +273,9 @@ class ExpectationTests(_Case):
                          (0, "scheduled", "weather", "Called off for weather", ""))
         self.assertNotEqual(self._day(amy, 1).get("band", ""), "absent")
         self.assertEqual((wed["expectedMin"], wed["source"], wed["reason"], wed["shiftStart"]), (120, "scheduled", "", "14:00"))
-        self.assertEqual(amy["expectedMin"], 120 + 480 * 3, "the cancelled Tuesday never counts against the week")
+        # The cancelled Tuesday never counts against the week, and the shared
+        # week leaves the other days off (rule 1b): only Wednesday's live shift.
+        self.assertEqual(amy["expectedMin"], 120)
 
     def test_holidays_by_company_and_country(self):
         self.db.add(models.HrCompanyHoliday(id=gen_id(), company_id="gg-in", date="2026-10-06", name="Dussehra",
