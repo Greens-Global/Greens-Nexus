@@ -1,5 +1,5 @@
 import { formatDate } from '../../../lib/datetime';
-import { fetchStatement, iso } from '../reportModel';
+import { fetchStatement, iso, pnlByEntity } from '../reportModel';
 import { FORMS, SKIP, TAX_REPORTS, layoutForm, mapsOf, rentalMode } from './engine';
 
 // Accounting -> Reports -> Tax (Charmi, 11/19/2026): reads the books for one
@@ -30,7 +30,7 @@ const pnl = (api, config, entities, book) => fetchStatement(api, { ...config, re
 export async function runTaxReport(api, config, book, entities = []) {
   const { form, report } = TAX_REPORTS[config.report];
   const entity = mapEntityOf(config);
-  const range = { from: config.from, to: config.to, book };
+  let range = { from: config.from, to: config.to, book };
   const head = (statement) => ({ org: statement?.org || '', generatedAt: statement?.generated_at || '', mode: 'single', pickable: [], mapEntity: entity });
 
   if (report.basis === 'returns') return tax1040(api, config, book, entities, form, report);
@@ -48,7 +48,23 @@ export async function runTaxReport(api, config, book, entities = []) {
     return { ...head(close), ...out };
   }
 
-  if (report.columns === 'entities' && config.entities.length) {
+  // Schedule C and Schedule E each read only the entities that FILE on them
+  // (Charmi, 11/24/2026: "All the line items is taking into account items for
+  // both SCH C and SCH E. We will have to separate them out"). Which one an
+  // entity files on is filesOn - the same rule as the 1040.
+  let split = null;
+  if (SPLIT[form.form]) split = await splitEntities(api, config, book, entities, form.form);
+  if (split) {
+    config = { ...config, entities: split.keep };
+    range = { ...range, entities: split.keep };   // a drill opens only the entities on this form
+    if (!split.keep.length) {
+      const out = layoutForm(form, report, [{ key: 'amount', label: labelOf(config), drill: range, sections: [], maps: {} }]);
+      return { org: split.org, generatedAt: split.generatedAt, mode: 'single', pickable: [], mapEntity: '', ...out, notes: [...out.notes, ...split.notes] };
+    }
+  }
+  const withSplit = (out) => (split ? { ...out, notes: [...out.notes, ...split.notes] } : out);
+
+  if (report.columns === 'entities' && config.entities.length && !(split && !split.picked && config.entities.length > MAX_PROPERTIES)) {
     // Schedule E: one column per property (entity), and a Total.
     const picks = config.entities;
     if (picks.length > MAX_PROPERTIES) throw new Error(`${form.title} reads at most ${MAX_PROPERTIES} properties at a time - pick fewer entities.`);
@@ -58,13 +74,64 @@ export async function runTaxReport(api, config, book, entities = []) {
     }));
     const mapMaps = picks.length === 1 ? cols[0].maps : { entity: {}, all: mapsOf(reads[0]?.[1] || [], '').all };
     const out = layoutForm(form, report, cols, { total: true, mapMaps, totalDrill: range });
-    return { ...head(reads[0]?.[0]), ...out };
+    return withSplit({ ...head(reads[0]?.[0]), ...out });
   }
 
   // One column: the income statement of the entity (or entities) picked.
   const [statement, lines] = await Promise.all([pnl(api, config, config.entities, book), saved(api, form.form, entity)]);
   const out = layoutForm(form, report, [{ key: 'amount', label: labelOf(config), drill: range, sections: statement?.sections || [], maps: mapsOf(lines, entity) }]);
-  return { ...head(statement), ...out };
+  return withSplit({ ...head(statement), ...out });
+}
+
+// ── Which schedule an entity files on ────────────────────────────────────────
+const SPLIT = { schedule_c: 'schedule_e', schedule_e: 'schedule_c' };
+
+/**
+ * The ONE rule for where an entity's business goes on a 1040: its Files On
+ * row in Form 1040's Line Mapping (the entity's own, else the one for every
+ * entity), else Schedule E when most of its revenue is rent, else Schedule C.
+ * Returns { line, source }.
+ */
+export function filesOn(sections, own) {
+  if (own.entity.return) return { line: own.entity.return, source: 'entity' };
+  if (own.all.return) return { line: own.all.return, source: 'all' };
+  return { line: rentalMode(FORMS.form_1065, sections) ? 'schedule_e' : 'schedule_c', source: 'suggested' };
+}
+
+/**
+ * The entities a Schedule C or E report reads: of the picked entities (else
+ * the top-level ones) those that file on this form. Every entity is read in
+ * ONE by-entity call; its Files On rows in one call each.
+ * Returns { keep, picked, notes, org, generatedAt }, or null when it cannot tell.
+ */
+async function splitEntities(api, config, book, entities, formKey) {
+  const picked = (config.entities || []).length > 0;
+  let read;
+  try {
+    read = await pnlByEntity(api, config, { from: config.from, to: config.to }, book);
+  } catch {
+    return null;      // the by-entity read failed: the form reads as before, unsplit
+  }
+  const codes = picked ? config.entities : [...read.byEntity.keys()].filter(Boolean);
+  if (!codes.length) return null;     // no entity had activity: nothing to split
+  const mapped = await Promise.all(codes.map((code) => saved(api, FORMS.form_1040.form, code).then((l) => mapsOf(l, code)).catch(() => ({ entity: {}, all: {} }))));
+  const keep = [];
+  const away = [];
+  codes.forEach((code, i) => {
+    const { line } = filesOn(read.byEntity.get(code) || [], mapped[i]);
+    if (line === formKey) keep.push(code);
+    else away.push({ code, line });
+  });
+  const other = FORMS[SPLIT[formKey]];
+  const elsewhere = away.filter((a) => a.line === other.form);
+  const off = away.filter((a) => a.line !== other.form);
+  const list = (xs) => xs.map((a) => nameOf(entities, a.code)).join(', ');
+  const notes = [
+    ...(elsewhere.length ? [`Left out - ${elsewhere.length === 1 ? 'files' : `${elsewhere.length} entities file`} on ${other.title}: ${list(elsewhere)}. Where an entity files is Files On in Form 1040's Line Mapping.`] : []),
+    ...(off.length ? [`Left out - not on Form 1040: ${list(off)}.`] : []),
+    ...(!keep.length ? [`No entity ${picked ? 'picked ' : ''}files on ${FORMS[formKey].title} - change Files On in Form 1040's Line Mapping, or pick other entities.`] : []),
+  ];
+  return { keep, picked, notes, org: read.org, generatedAt: read.generatedAt };
 }
 
 // ── Form 1040 ────────────────────────────────────────────────────────────────
@@ -88,9 +155,8 @@ export async function tax1040(api, config, book, entities, form, report) {
     const code = picks[i];
     const sections = statement?.sections || [];
     const own = mapsOf(ret, code);
-    const suggested = rentalMode(FORMS.form_1065, sections) ? 'schedule_e' : 'schedule_c';
-    const line = own.entity.return || own.all.return || suggested;
-    const source = own.entity.return ? 'entity' : own.all.return ? 'all' : 'suggested';
+    const suggested = filesOn(sections, { entity: {}, all: {} }).line;
+    const { line, source } = filesOn(sections, own);
     let amount = 0;
     if (SCHED[line]) {
       const f = SCHED[line].form();

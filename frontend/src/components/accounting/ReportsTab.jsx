@@ -506,8 +506,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const chips = filterChips(config, entities, dimNames);
   const entityLabel = entityText(config, entities);
   // A column of one entity drills into that entity, whatever the report covers.
-  const drillEntities = drill?.entity ? [drill.entity] : config.entities;
-  const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
+  // A drill may carry several entities (a tax form's column: the entities that file on it, 11/25/2026).
+  const drillEntities = drill?.entity ? [drill.entity] : drill?.entities?.length ? drill.entities : config.entities;
+  const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : drill?.entities?.length ? entityText({ entities: drill.entities }, entities) : entityLabel;
   const glBusy = loading && !syncLoad && (config.report === 'general-ledger' || isActivity(config));
   const activity = ACTIVITY_REPORTS[config.report] || null;
   // What Collapse All folds: statement sections and General Ledger accounts, and the account groups above them.
@@ -1045,7 +1046,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           <div className={`acct-report-wrap${full ? '' : ' acct-scroll-box'}`} data-testid="report-box" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
             {/* Oct 23 (Viral, item 10): the whole heading block - names and filter
                 boxes - pins to the top of the box (acct-sticky-head, style.css). */}
-            <table className={`acct-report acct-sticky-head${shown.glLabel ? ' acct-gl' : ''}`} style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
+            <table className={`acct-report acct-sticky-head${shown.glLabel ? ' acct-gl' : ''}${shown.taxForm ? ' acct-tax' : ''}`} style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
               <colgroup>
                 {headCols.map((c) => <col key={c.key} style={widths.width(c.key) ? { width: widths.width(c.key), minWidth: widths.width(c.key) } : undefined} />)}
               </colgroup>
