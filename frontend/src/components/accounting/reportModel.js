@@ -597,6 +597,16 @@ function accountSection(code) {
   return { 4: 'revenue', 5: 'cogs', 6: 'expense', 7: 'expense', 8: 'other_income', 9: 'other_expense' }[d] || '';
 }
 const asSections = (report, bySection) => SECTIONS[report].map(([key, label]) => ({ key, label, accounts: bySection?.get(key) || [] }));
+/**
+ * The income statement of each entity in one read (by=entity): the picked
+ * entities, else the top-level ones. Map code -> sections. Used by the tax
+ * forms to tell which entities file on Schedule C and which on Schedule E.
+ */
+export async function pnlByEntity(api, config, range, book, entities = []) {
+  const data = await fetchBuckets(api, { ...config, report: 'pnl' }, range, 'entity', book, entities);
+  const by = statementsByBucket(data?.rows || [], PL_KEYS);
+  return { org: data?.org || '', generatedAt: data?.generated_at || '', byEntity: new Map([...by.entries()].map(([k, v]) => [k, asSections('pnl', v)])) };
+}
 
 // A dimension column per code can be thousands of columns. Keep the largest
 // by activity and fold the rest into one "Other" bucket.
