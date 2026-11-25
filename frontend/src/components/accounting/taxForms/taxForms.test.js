@@ -258,3 +258,38 @@ describe('the report reads only through the proxy and the mapping', () => {
       .rejects.toThrow(/at most 15 properties/);
   });
 });
+
+// Charmi, 11/24/2026: "All the line items is taking into account items for
+// both SCH C and SCH E. We will have to separate them out." Each form reads
+// only the entities that file on it.
+describe('Schedule C and Schedule E read only the entities that file on them', () => {
+  const rows = (bucket, sections) => sections.flatMap((s) => s.accounts.map((a) => ({
+    account_no: a.account_no, title: a.title, section: s.key, bucket,
+    debit: ['revenue', 'other_income'].includes(s.key) ? 0 : a.amount, credit: ['revenue', 'other_income'].includes(s.key) ? a.amount : 0,
+  })));
+  const apiFor = (saved = {}) => ({
+    getAccountingBuckets: vi.fn(async () => ({ rows: [...rows('15000', RENTAL), ...rows('12000', TRADING)] })),
+    getAccountingPnl: vi.fn(async (from, to, location) => ({ sections: String(location).includes('15000') ? RENTAL : TRADING })),
+    getAccountingTaxLines: vi.fn(async (form, entity) => ({ lines: saved[`${form}:${entity}`] || [] })),
+  });
+  const cfg = (report, entities = []) => resolveConfig({ report, preset: 'custom', from: '2025-01-01', to: '2025-12-31', entities });
+
+  it('with nothing picked, Schedule C reads the business and Schedule E the property, each naming the other', async () => {
+    const api = apiFor();
+    const c = await runTaxReport(api, cfg('schedule-c'), 'accrual');
+    expect(api.getAccountingPnl.mock.calls.every(([, , location]) => location === '12000')).toBe(true);
+    expect(c.notes.some((n) => /Left out - files on Schedule E: 15000/.test(n))).toBe(true);
+    expect(c.columns[0].drill.entities).toEqual(['12000']);
+    const e = await runTaxReport(api, cfg('schedule-e'), 'accrual');
+    expect(e.notes.some((n) => /Left out - files on Schedule C: 12000/.test(n))).toBe(true);
+    expect(e.lineTotals[3]).toBe(92000);
+  });
+
+  it('a Files On row in Form 1040 wins over the suggestion', async () => {
+    const api = apiFor({ 'form_1040:15000': [{ accountNo: 'return', line: 'schedule_c', entity: '15000' }] });
+    const c = await runTaxReport(api, cfg('schedule-c', ['15000', '12000']), 'accrual');
+    expect(c.notes.some((n) => /Left out/.test(n))).toBe(false);
+    const e = await runTaxReport(api, cfg('schedule-e', ['15000', '12000']), 'accrual');
+    expect(e.notes.some((n) => /No entity picked files on Schedule E/.test(n))).toBe(true);
+  });
+});
