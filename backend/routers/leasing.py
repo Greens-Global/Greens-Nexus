@@ -929,6 +929,166 @@ async def _receipts(scope: dict, leases: list[dict], year: int, every: Optional[
     return out
 
 
+# ── The payments read, kept (11/25/2026) ─────────────────────────────────────
+# "It is opening, taking a lot lot lot of time" (Visesh, after the 120 s wait
+# shipped): a cold rent roll is ~110 ledger reads, most on the accounting
+# app's slow line-by-line path, and the 5-minute read cache is per worker, so
+# nearly every open was cold. The year's payments are now read ONCE for every
+# lease (unlimited - the caller's reach is checked separately and the roll
+# shows only their leases) and kept in nexus_settings, shared by every worker
+# and instance:
+#   * younger than _KEEP_FRESH: answered as it is;
+#   * older, up to _KEEP_MAX: answered at once AND read again in the
+#     background (one refresh at a time across the fleet - _claim_refresh);
+#   * older than that, missing, a different set of leases, or Sync (fresh=1)
+#     on a copy older than _FRESH_MIN: read now, as before.
+# A person limited to certain entities reads the kept copy (the roll still
+# shows only their leases) but never sets off a read of anyone else's.
+# The roll says when its payments were read (receiptsAt). Written with plain
+# table statements, so the copy never reaches the change log.
+_KEEP_FRESH = 10 * 60
+_KEEP_MAX = 7 * 24 * 3600
+_FRESH_MIN = 60
+_REFRESH_CLAIM = 5 * 60
+_KEEP_KEY = "leasing.receipts:{year}"
+_CLAIM_KEY = "leasing.receipts-refresh:{year}"
+_UNLIMITED = {"user": {}, "allowed": None}
+
+
+def _lease_sig(leases: list[dict]) -> str:
+    """What the kept copy was read for: every lease's entity, customer and
+    income accounts. A lease added or changed reads again."""
+    import hashlib
+    parts = sorted(f"{l['entityCode']}|{l['customerId']}|{','.join(sorted(l['incomeAccounts']))}" for l in leases)
+    return hashlib.sha256(";".join(parts).encode()).hexdigest()[:16]
+
+
+def _pack(receipts: dict) -> list:
+    return [{"k": list(k), "v": sorted(v) if isinstance(v, set) else v, "s": isinstance(v, set)} for k, v in receipts.items()]
+
+
+def _unpack(rows: list) -> dict:
+    return {tuple(r["k"]): (set(r["v"]) if r.get("s") else r["v"]) for r in rows}
+
+
+def _kept_read(year: int) -> Optional[dict]:
+    import json
+    db = SessionLocal()
+    try:
+        t = models.NexusSetting.__table__
+        row = db.execute(t.select().where(t.c.key == _KEEP_KEY.format(year=year))).first()
+        if not row or not row.value:
+            return None
+        try:
+            return json.loads(row.value)
+        except ValueError:
+            return None
+    finally:
+        db.close()
+
+
+def _kept_write(year: int, sig: str, receipts: dict) -> float:
+    import json
+    at = time.time()
+    value = json.dumps({"at": at, "sig": sig, "rows": _pack(receipts)})
+    db = SessionLocal()
+    try:
+        t = models.NexusSetting.__table__
+        key = _KEEP_KEY.format(year=year)
+        stamp = datetime.now(timezone.utc).isoformat()
+        if db.execute(t.select().where(t.c.key == key)).first():
+            db.execute(t.update().where(t.c.key == key).values(value=value, updated_by="system", updated_at=stamp))
+        else:
+            db.execute(t.insert().values(key=key, value=value, updated_by="system", updated_at=stamp))
+        db.commit()
+    finally:
+        db.close()
+    return at
+
+
+def _stamp(t: float) -> str:
+    """A time as fixed-width text, so the claim compares as text in SQL."""
+    return f"{t:020.3f}"
+
+
+def _claim_refresh(year: int) -> bool:
+    """One background refresh at a time across every worker: claimed with a
+    conditional update on its own row; a claim older than _REFRESH_CLAIM
+    (a worker that died mid-read) may be taken again."""
+    db = SessionLocal()
+    try:
+        t = models.NexusSetting.__table__
+        key = _CLAIM_KEY.format(year=year)
+        now = time.time()
+        if not db.execute(t.select().where(t.c.key == key)).first():
+            try:
+                db.execute(t.insert().values(key=key, value=_stamp(0), updated_by="system", updated_at=""))
+                db.commit()
+            except Exception:  # noqa: BLE001 - another worker made it first
+                db.rollback()
+        res = db.execute(t.update().where(t.c.key == key).where(t.c.value < _stamp(now - _REFRESH_CLAIM))
+                         .values(value=_stamp(now)))
+        db.commit()
+        return res.rowcount == 1
+    finally:
+        db.close()
+
+
+_refreshing: set = set()
+_tasks: set = set()     # held so a running refresh is not garbage-collected
+
+
+async def _read_and_keep(year: int, every: list[dict], sig: str) -> tuple[dict, float]:
+    receipts = await _receipts(_UNLIMITED, every, year)
+    at = await asyncio.to_thread(_kept_write, year, sig, receipts)
+    return receipts, at
+
+
+async def _refresh_later(year: int, every: list[dict], sig: str) -> None:
+    if year in _refreshing:
+        return
+    _refreshing.add(year)
+    try:
+        if await asyncio.to_thread(_claim_refresh, year):
+            await _read_and_keep(year, every, sig)
+    except Exception:  # noqa: BLE001 - the kept copy stays; the next open tries again
+        pass
+    finally:
+        _refreshing.discard(year)
+
+
+async def _shared_receipts(scope: dict, shown: list[dict], every: list[dict], year: int) -> tuple[dict, float]:
+    """The payments for `shown` (the caller's leases) and when they were read.
+    Raises HTTPException as _receipts does when a read is needed and fails."""
+    for code in dict.fromkeys(l["entityCode"] for l in shown if l["entityCode"]):
+        await accounting._limit(scope, code, None)     # 403 for an entity outside the caller's reach
+    if not shown:
+        return {}, time.time()
+    sig = _lease_sig(every)
+    kept = await asyncio.to_thread(_kept_read, year)
+    now = time.time()
+    age = now - kept["at"] if kept else None
+    usable = kept is not None and kept.get("sig") == sig and age is not None and age < _KEEP_MAX
+    fresh = accounting._ACCT_FRESH.get()
+    limited = scope.get("allowed") is not None
+    if usable and not (fresh and age > _FRESH_MIN):
+        if age > _KEEP_FRESH and not limited:
+            task = asyncio.get_running_loop().create_task(_refresh_later(year, every, sig))
+            _tasks.add(task)
+            task.add_done_callback(_tasks.discard)
+        return _unpack(kept["rows"]), kept["at"]
+    try:
+        if limited:
+            # A person limited to certain entities never sets off reads of
+            # anyone else's: their own leases, read now, not kept.
+            return await _receipts(scope, shown, year), time.time()
+        return await _read_and_keep(year, every, sig)
+    except HTTPException:
+        if kept and kept.get("sig") == sig:
+            return _unpack(kept["rows"]), kept["at"]    # the ledger is down: the last read, with its time
+        raise
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 @router.get("/leases")
 async def list_leases(scope: dict = Depends(entity_scope)):
@@ -970,8 +1130,14 @@ async def get_rent_roll(year: Optional[int] = None, entities: Optional[str] = No
     if picked:
         shown = [l for l in shown if l["customerId"] in picked]
     warning = ""
+    receipts_at = None
     try:
-        receipts = await _receipts(scope, shown, year, every=leases)
+        every = [_lease_out(l, rates.get(l.id, []), names) for l in leases]
+        for l in every:                       # the customer links autolink just made
+            hit = next((x for x in shown if x["id"] == l["id"]), None)
+            if hit:
+                l["customerId"] = hit["customerId"]
+        receipts, receipts_at = await _shared_receipts(scope, shown, every, year)
     except HTTPException as e:
         # The leases and what they expect are Nexus's own; the ledger being
         # unreachable must not blank the screen. Say so, and show zero received.
@@ -984,6 +1150,8 @@ async def get_rent_roll(year: Optional[int] = None, entities: Optional[str] = No
         r["expired"] = expired(r["lease"], today)
     out["summary"].update({"inactive": sum(1 for r in out["rows"] if not r["customerActive"]), "expired": sum(1 for r in out["rows"] if r["expired"])})
     out["linked"] = linked
+    if receipts_at:
+        out["receiptsAt"] = datetime.fromtimestamp(receipts_at, timezone.utc).isoformat()
     out["customerDetails"] = any(c.get("source") == "intacct" for c in directory.values())
     if warning:
         out["warning"] = warning
