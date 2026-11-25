@@ -259,6 +259,8 @@ class LeasingApiTests(unittest.TestCase):
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_(list(GROUPS))).delete(synchronize_session=False)
             db.query(models.NexusGroup).filter(models.NexusGroup.id.in_(list(GROUPS))).delete(synchronize_session=False)
             db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email.in_(EVERYONE)).delete(synchronize_session=False)
+            # The kept payments copy (11/25/2026) - each test reads its own ledger.
+            db.query(models.NexusSetting).filter(models.NexusSetting.key.like("leasing.receipts%")).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -570,6 +572,49 @@ class LeasingApiTests(unittest.TestCase):
         payers = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and p["by"] == "customer"]
         self.assertEqual(sorted(p["location"] for p in payers), ["12000", "15000"])
         self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer") and "C00498" in p["customers"]], [])
+
+    def test_the_payments_are_kept_and_read_again_only_when_needed(self):
+        """11/25/2026 ("it is opening, taking a lot lot lot of time"): the
+        year's payments are read once and kept for every worker. A second
+        open reads nothing; a copy past its limit, a changed lease or Sync
+        on a copy over a minute old reads again."""
+        import json
+        _as(EDITOR)
+        a = self.client.post("/leasing/leases", json=self._body()).json()
+        _as(VIEWER)
+        reads = lambda: [p for (path, p) in self.asked if path.endswith("/reports/buckets")]   # noqa: E731
+        first = self.client.get("/leasing/rent-roll").json()
+        self.assertTrue(first.get("receiptsAt"))
+        n = len(reads())
+        self.assertGreater(n, 0)
+        again = self.client.get("/leasing/rent-roll").json()
+        self.assertEqual(len(reads()), n)                       # answered from the kept copy
+        self.assertEqual([r["months"][0]["received"] for r in again["rows"] if r["lease"]["id"] == a["id"]], [3000.0])
+
+        def age(seconds):
+            db = database.SessionLocal()
+            try:
+                row = db.query(models.NexusSetting).filter(models.NexusSetting.key == f"leasing.receipts:{date.today().year}").one()
+                kept = json.loads(row.value)
+                kept["at"] -= seconds
+                row.value = json.dumps(kept)
+                db.commit()
+            finally:
+                db.close()
+
+        age(120)
+        self.client.get("/leasing/rent-roll?fresh=1")             # Sync on a copy two minutes old
+        self.assertGreater(len(reads()), n)
+        n = len(reads())
+        age(8 * 24 * 3600)                                       # past the week the copy may be shown
+        self.client.get("/leasing/rent-roll")
+        self.assertGreater(len(reads()), n)
+        n = len(reads())
+        _as(EDITOR)
+        self.client.post("/leasing/leases", json=self._body(entityCode="12000", propertyName="47385 RCR, Temecula"))
+        _as(VIEWER)
+        self.client.get("/leasing/rent-roll")                    # a new lease: read again
+        self.assertGreater(len(reads()), n)
 
     def test_oct23_rent_is_pulled_from_the_location_the_lease_maps_to(self):
         """Urmi, MRI item 24: Greens Global, Inc. (C00132) pays internal rent to
