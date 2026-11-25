@@ -652,7 +652,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <span>Expected <strong><Amount value={figures.expected} /></strong></span>
           <span>Received <strong><Amount value={figures.received} /></strong></span>
           <span title="Expected less received. A credit (in parentheses) is a prepayment.">Balance <strong style={{ color: figures.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : figures.balance < -0.005 ? 'var(--ok-fg, #15803d)' : undefined }}><Amount value={figures.balance} /></strong>{figures.balance < -0.005 ? <span style={{ color: 'var(--ok-fg, #15803d)' }}> Credit</span> : null}</span>
-          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rollRows.length)}{rollView.count || rollFilters.filtering ? ` of ${rows.length} (filtered)` : ''}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}</span>
+          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rollRows.length)}{rollView.count || rollFilters.filtering ? ` of ${rows.length} (filtered)` : ''}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}{roll?.receiptsAt ? ` · Payments read ${formatDateTime(roll.receiptsAt)}` : ''}</span>
           {possiblyEnded > 0 && <span data-testid="possibly-ended-count">{possiblyEnded} Possibly Ended</span>}
           <RecheckStatus recheck={recheck} />
         </div>
