@@ -1286,7 +1286,7 @@ export const api = {
   reorderPfsProfiles: (ids) => req("/pfs/profile-order", { method: "PUT", body: JSON.stringify({ ids }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
-  getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
+  getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`, { timeoutMs: 120_000 }),
   getLeasingCustomers: () => req("/leasing/customers"),
   createLeasingLease: (body) => req("/leasing/leases", { method: "POST", body: JSON.stringify(body) }),
   updateLeasingLease: (id, body) => req(`/leasing/leases/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
@@ -2378,7 +2378,7 @@ export const api = {
   // MRI > Leasing (Charmi, Oct 6): the rent roll narrowed to entities /
   // customers, a tenant's customer record (the popover), the team's note per
   // lease, and the ledger sync (link leases to customers, add new tenants).
-  getLeasingRentRollFor:  (year, { entities = [], customers = [] } = {}) => req(`/leasing/rent-roll?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}${customers.length ? `&customers=${encodeURIComponent(customers.join(','))}` : ''}`),
+  getLeasingRentRollFor:  (year, { entities = [], customers = [] } = {}) => req(`/leasing/rent-roll?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}${customers.length ? `&customers=${encodeURIComponent(customers.join(','))}` : ''}`, { timeoutMs: 120_000 }),   // ~110 ledger reads on a cold cache (11/25)
   getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
   setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
   syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
