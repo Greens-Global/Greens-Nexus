@@ -2,6 +2,7 @@ import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest, loginRequest } from './authConfig';
 import { BFF_MODE, csrfToken, bffLogin } from './bffAuth';
 import { rewriteResponseText, restoreRequestBody, fromViewUrl } from './lib/storageView';
+import { sessionDead401 } from './lib/session401';
 
 // Recover a dead session app-wide. When even a FORCE-refreshed token still 401s,
 // MSAL's silent hidden-iframe renewal is failing - modern browsers block the
@@ -349,9 +350,13 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   }
   _emitApiRequest(path, options, res.status, _startedAt, _apiBodyWanted(path, res) ? res.clone() : null);
 
+  // Only the sign-in check's own 401 is a dead sign-in (lib/session401.js). A
+  // route's 401 - "Insufficient permissions", Egnyte refusing its token - is an
+  // ordinary refusal: never sent again, never a trip to sign-in.
+  const dead = await sessionDead401(res);
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
-  if (res.status === 401 && BFF_MODE) {
+  if (dead && BFF_MODE) {
     // A 401 is usually TRANSIENT, not a dead session: the server's silent token
     // refresh raced this request, or Microsoft blipped for a moment. Retry once
     // (letting that settle) BEFORE the jarring full-page re-login - so a user
@@ -362,10 +367,10 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       return req(path, options, attempt, true);
     }
     bffLogin();
-  } else if (res.status === 401 && !tokenRefreshed) {
+  } else if (dead && !tokenRefreshed) {
     // On 401 (expired token), force-refresh MSAL token and retry once
     return req(path, options, attempt, true);
-  } else if (res.status === 401 && tokenRefreshed) {
+  } else if (dead && tokenRefreshed) {
     // Still 401 after a forced refresh: the token is dead and silent renewal can't
     // fix it - recover with a guarded top-level interactive login.
     _maybeReauth();
@@ -451,16 +456,17 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
     }
     throw _networkError(err);
   }
-  if (res.status === 401 && BFF_MODE) {
+  const dead = await sessionDead401(res);   // as in req(): a route's own 401 is not a dead sign-in
+  if (dead && BFF_MODE) {
     // Same as req(): absorb a transient 401 with one retry before a full-page re-login.
     if (!tokenRefreshed) {
       await new Promise(r => setTimeout(r, 700));
       return reqBlob(path, options, attempt, true);
     }
     bffLogin();
-  } else if (res.status === 401 && !tokenRefreshed) {
+  } else if (dead && !tokenRefreshed) {
     return reqBlob(path, options, attempt, true);
-  } else if (res.status === 401 && tokenRefreshed) {
+  } else if (dead && tokenRefreshed) {
     _maybeReauth();
   }
   if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
