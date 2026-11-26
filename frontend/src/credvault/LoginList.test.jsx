@@ -35,6 +35,30 @@ describe('LoginList', () => {
     selectedId: null, now: Date.now(), nameOf: (e) => e, myEmail: 'me@x.com', done: '', clipLeft: 0, autoFocus: false,
     onOpen: vi.fn(), onCopyUser: vi.fn(), onCopyPassword: vi.fn(), onOpenSite: vi.fn(), onCopyCode: vi.fn(), onRequest: vi.fn(),
   });
+  // The register (11/25/2026): a row's facts are cells of their own, so a computer lines them up as columns.
+  it('a row carries its facts as cells; the heading row sorts with the same sorts as "..."', () => {
+    const p = props();
+    render(<LoginList {...p} rows={[...ROWS, row({ id: 'c6', name: 'Mine', owner: 'ME@x.com', siteName: 'Kyle', strength: 'weak' })]} />);
+    const cell = (id, k) => document.querySelector(`[data-login="${id}"] .cv-c-${k}`);
+    expect(['user', 'dept', 'owner', 'state'].map((k) => cell('c2', k).textContent)).toEqual(['dns', 'IT', 'o@x.com', 'rotation 10 days overdue']);
+    expect(cell('c6', 'owner').textContent).toBe('You');                         // your own login says so, whatever the email's case
+    expect(cell('c6', 'dept').textContent).toBe('IT - Kyle');
+    expect(cell('c6', 'state').querySelector('.tone-bad').textContent).toBe('weak password');
+    fireEvent.click(document.querySelector('.cv-fold'));                          // the rows I cannot open are folded
+    expect(cell('c1', 'owner').className).toContain('cv-wide');                  // a narrow row does not repeat the owner...
+    expect(cell('c4', 'owner').className).not.toContain('cv-wide');              // ...except where you have to ask them
+    expect(cell('c4', 'owner').textContent).toBe('owned by o@x.com');
+    expect(cell('c4', 'state').textContent).toBe('Critical - Request Access');
+    // a narrow row reads as one line: a separator only between facts that are there
+    expect(document.querySelector('[data-login="c4"] .cv-l-cells').textContent).toBe('Accounting - owned by o@x.com - Critical - Request Access');
+    const head = within(document.querySelector('[data-head]'));
+    expect(head.getAllByRole('button').map((b) => b.textContent)).toEqual(['Login', 'Department', 'Owner', 'Status']);
+    fireEvent.click(head.getByRole('button', { name: 'Owner' }));
+    expect(p.onSort).toHaveBeenCalledWith('owner');
+    fireEvent.click(head.getByRole('button', { name: 'Login' }));                 // the sort in force, pressed again, stays by name
+    expect(p.onSort).toHaveBeenLastCalledWith('name');
+  });
+
   it('reads Favorites, Recently Used, All; one leading button a row; the rest on the row too', () => {
     const p = props();
     render(<LoginList {...p} />);

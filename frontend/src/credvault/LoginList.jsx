@@ -13,15 +13,21 @@
 //     all under the name (the 11/15/2026 phone pass). A click on the row opens
 //     the login as a sheet.
 //   - States are words on the row's own line ("rotation 12 days overdue").
+//   - On a computer the row's facts line up as a register - Login, Username,
+//     Department, Owner, Status - under one quiet heading row whose names sort
+//     the list (the same sorts as "..."); a narrow window and a phone run the
+//     same facts together as the row's second line (Pranshu, 11/25/2026). There
+//     User, Password and Code are their icons alone, named on hover, so the
+//     Status column keeps its room.
 // The screen (CredentialVaultApp) owns the data and every gated call; this
 // file lays the list out.
 import { useEffect, useRef, useState } from "react";
-import { Search, X, Star, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { Search, X, Star, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, ShieldCheck, Trash2, User } from "lucide-react";
 import { ACCESS_LABEL, flagWords, healthFlags, listLogins, sentenceCounts, siteOf, timeLeft, SORTS } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 
 /** The site's own icon when the row has a link, else the department monogram. */
-export function SiteIcon({ cred, depts, size = 34 }) {
+export function SiteIcon({ cred, depts, size = 28 }) {
   const [broken, setBroken] = useState(false);
   const host = siteOf(cred.url);
   if (!host || broken) return <Monogram name={cred.name} dept={cred.dept} depts={depts} size={size} />;
@@ -36,18 +42,18 @@ function RowActions({ cred, done, onCopyUser, onCopyPassword, onOpenSite, onCopy
     <span className="cv-l-acts">
       {hasUser && (
         <button type="button" className={`cv-l-btn is-x${ok("u") ? " is-done" : ""}`} title={`Copy username ${cred.username}`} aria-label={`Copy username for ${cred.name}`} onClick={() => onCopyUser(cred)}>
-          {ok("u") ? <Check size={13} /> : <Copy size={13} />} User
+          {ok("u") ? <Check size={13} /> : <User size={13} />} <span className="cv-l-word">User</span>
         </button>
       )}
       {/* With a site, Password is one of the quiet extras and Open leads; with none, copying the password is the row's one button. */}
       {site && (
         <button type="button" className={`cv-l-btn is-x${ok("p") ? " is-done" : ""}`} title="Copy the password (logged)" aria-label={`Copy password for ${cred.name}`} onClick={() => onCopyPassword(cred)}>
-          {ok("p") ? <Check size={13} /> : <KeyRound size={13} />} Password
+          {ok("p") ? <Check size={13} /> : <KeyRound size={13} />} <span className="cv-l-word">Password</span>
         </button>
       )}
       {cred.hasTotp && (
         <button type="button" className={`cv-l-btn is-x${ok("t") ? " is-done" : ""}`} title="Copy the current authenticator code" aria-label={`Copy code for ${cred.name}`} onClick={() => onCopyCode(cred)}>
-          {ok("t") ? <Check size={13} /> : <ShieldCheck size={13} />} Code
+          {ok("t") ? <Check size={13} /> : <ShieldCheck size={13} />} <span className="cv-l-word">Code</span>
         </button>
       )}
       {site ? (
@@ -63,25 +69,59 @@ function RowActions({ cred, done, onCopyUser, onCopyPassword, onOpenSite, onCopy
   );
 }
 
-/** The row's second line: who it is for and what state it is in, as words. */
-function SubLine({ cred, now, nameOf }) {
-  const parts = [];
+/** The row's facts, a cell each: the register's columns on a computer, one
+ *  running second line on a narrow window. `narrow` = said on that line too. */
+function Cells({ cred, now, nameOf, myEmail = "", locked = false }) {
   const user = cred.username && cred.username !== "-" ? cred.username : "";
-  if (user) parts.push(<span key="u">{user}</span>);
-  else if (siteOf(cred.url)) parts.push(<span key="s">{siteOf(cred.url)}</span>);
-  if (cred.dept) parts.push(<span key="d">{cred.dept}</span>);
-  if (cred.siteName) parts.push(<span key="l">{cred.siteName}</span>);
-  if (cred.tier && cred.tier !== "Standard") parts.push(<span key="t" title={cred.tier === "Critical" ? "Critical: only named people open it" : "High: closely guarded"}>{cred.tier}</span>);
-  if (cred.deletedAt) parts.push(<span key="x" className="tone-bad">in the trash</span>);
+  const owner = cred.owner ? nameOf(cred.owner) : "";
+  const mine = !!myEmail && (cred.owner || "").toLowerCase() === myEmail.toLowerCase();
+  const state = [];
+  if (cred.tier && cred.tier !== "Standard") state.push({ key: "t", text: cred.tier, hint: cred.tier === "Critical" ? "Critical: only named people open it" : "High: closely guarded" });
+  if (locked) { if (ACCESS_LABEL[cred.access]) state.push({ key: "a", text: ACCESS_LABEL[cred.access] }); }
+  else if (cred.deletedAt) state.push({ key: "x", text: "in the trash", tone: "bad" });
   else {
-    if (cred.access === "shared" && cred.grantUntil) parts.push(<span key="g">shared with you, {timeLeft(cred.grantUntil - now)} left</span>);
-    if (cred.access === "person") parts.push(<span key="p">shared with you by {nameOf(cred.owner)}</span>);
-    if (cred.canReveal) healthFlags(cred).slice(0, 2).forEach((f) => parts.push(<span key={f.key} className={`tone-${f.tone}`} title={f.hint || f.label}>{flagWords(f, cred)}</span>));
+    if (cred.access === "shared" && cred.grantUntil) state.push({ key: "g", text: `shared with you, ${timeLeft(cred.grantUntil - now)} left` });
+    if (cred.access === "person") state.push({ key: "p", text: `shared with you by ${owner}` });
+    if (cred.canReveal) healthFlags(cred).slice(0, 2).forEach((f) => state.push({ key: f.key, text: flagWords(f, cred), tone: f.tone, hint: f.hint || f.label }));
   }
-  return <span className="cv-l-sub">{parts.map((p, i) => [i > 0 && <span key={`sep${i}`} aria-hidden="true"> - </span>, p])}</span>;
+  const dept = [cred.dept, !locked && cred.siteName].filter(Boolean).join(" - ");
+  const cells = [
+    { key: "user", narrow: true, title: user, body: locked ? (cred.access === "view" ? user : "") : user || siteOf(cred.url) || "" },
+    { key: "dept", narrow: true, title: dept, body: dept },
+    // The owner is its own column on a computer; a narrow row names the owner only where you have to ask them.
+    { key: "owner", narrow: locked, title: owner, body: !owner ? "" : locked ? <><span className="cv-narrow">owned by </span>{owner}</> : mine ? "You" : owner },
+    { key: "state", narrow: true, title: state.map((p) => p.text).join(" - "),
+      body: state.length ? state.map((p, i) => [i > 0 && <span key={`sep${i}`} aria-hidden="true"> - </span>,
+        <span key={p.key} className={p.tone ? `tone-${p.tone}` : undefined} title={p.hint}>{p.text}</span>]) : "" },
+  ];
+  const firstSaid = cells.find((c) => c.narrow && c.body);
+  return (
+    <span className="cv-l-sub cv-l-cells">
+      {cells.map((c) => [
+        c.narrow && c.body && c !== firstSaid && <span key={`${c.key}-sep`} className="cv-sep" aria-hidden="true"> - </span>,
+        <span key={c.key} className={`cv-c cv-c-${c.key}${c.narrow ? "" : " cv-wide"}`} title={c.title || undefined}>{c.body}</span>,
+      ])}
+    </span>
+  );
 }
 
-function Row({ cred, depts, active, favorite, now, nameOf, done, onOpen, selecting, checked, onCheck, ...actions }) {
+/** The register's heading row (computers only): a name sorts by its column. */
+const COLUMNS = [["name", "Login"], ["", "Username"], ["dept", "Department"], ["owner", "Owner"], ["health", "Status"]];
+function Head({ sort, onSort, selecting }) {
+  return (
+    <div className="cv-head" data-head="">
+      {selecting && <span className="cv-l-check" />}
+      <span className="cv-head-cols">
+        {COLUMNS.map(([key, label]) => (key
+          ? <button key={label} type="button" className="cv-head-btn" aria-pressed={sort === key} title={`Sort by ${label.toLowerCase()}`} onClick={() => onSort(sort === key ? "name" : key)}>{label}{sort === key && <ChevronDown size={12} aria-hidden="true" />}</button>
+          : <span key={label}>{label}</span>))}
+      </span>
+      <span className="cv-head-acts" />
+    </div>
+  );
+}
+
+function Row({ cred, depts, active, favorite, now, nameOf, myEmail, done, onOpen, selecting, checked, onCheck, ...actions }) {
   return (
     <div className={`cv-l${active ? " is-active" : ""}`} data-login={cred.id}>
       {selecting && (
@@ -93,7 +133,7 @@ function Row({ cred, depts, active, favorite, now, nameOf, done, onOpen, selecti
         <SiteIcon cred={cred} depts={depts} />
         <span className="cv-l-main">
           <span className="cv-l-name"><span>{cred.name}</span>{favorite && <Star size={11} className="cv-prow-star" fill="currentColor" aria-label="Favorite" />}</span>
-          <SubLine cred={cred} now={now} nameOf={nameOf} />
+          <Cells cred={cred} now={now} nameOf={nameOf} myEmail={myEmail} />
         </span>
       </button>
       {!cred.deletedAt && <RowActions cred={cred} done={done} {...actions} />}
@@ -146,7 +186,7 @@ export default function LoginList({
   const searching = !!query.trim();
   const lockedOpen = showLocked || searching;
   const sortName = SORTS.find(([k]) => k === sort)?.[1] || "";
-  const rowProps = (c) => ({ cred: c, depts, active: selectedId === c.id, favorite: favorites.has(c.id), now, nameOf, done, onOpen,
+  const rowProps = (c) => ({ cred: c, depts, active: selectedId === c.id, favorite: favorites.has(c.id), now, nameOf, myEmail, done, onOpen,
     selecting, checked: checked.has(c.id), onCheck, onCopyUser, onCopyPassword, onOpenSite, onCopyCode });
 
   // "/" from anywhere on the page puts the cursor in the search box, the
@@ -168,8 +208,8 @@ export default function LoginList({
       {/* One first row: the search, then "+ New" and "..." at its end - not a row of their own above it. */}
       <div className="cv-top">
       <label className="cv-search">
-        <Search size={18} aria-hidden="true" />
-        <input ref={box} placeholder="Search" aria-label="Search logins" value={query} onChange={(e) => onQuery(e.target.value)} autoFocus={autoFocus}
+        <Search size={16} aria-hidden="true" />
+        <input ref={box} placeholder="Search name, username, site, owner or department" aria-label="Search logins" value={query} onChange={(e) => onQuery(e.target.value)} autoFocus={autoFocus}
           onKeyDown={(e) => { if (e.key === "Enter" && first) { e.preventDefault(); onOpen(first.id); } if (e.key === "Escape" && query) { e.stopPropagation(); onQuery(""); } }} />
         {query
           ? <button type="button" className="cv-search-clear" aria-label="Clear search" onClick={() => { onQuery(""); box.current?.focus(); }}><X size={15} /></button>
@@ -215,6 +255,8 @@ export default function LoginList({
         </div>
       )}
 
+      {(shown > 0 || (g.locked.length > 0 && view === "all")) && <Head sort={sort} onSort={onSort} selecting={selecting} />}
+
       {g.sections.map((s) => (
         <section key={s.key} data-section={s.key}>
           {s.title && <h3 className="cv-sec">{s.title}</h3>}
@@ -232,15 +274,12 @@ export default function LoginList({
           {!lockedOpen && <span className="cv-fold-hint">Ask the owner for timed access</span>}
         </button>
         {lockedOpen && g.locked.map((c) => (
-          <div className={`cv-l${selectedId === c.id ? " is-active" : ""}`} key={c.id} data-login={c.id}>
+          <div className={`cv-l is-locked${selectedId === c.id ? " is-active" : ""}`} key={c.id} data-login={c.id}>
             <button type="button" className="cv-l-open" onClick={() => onOpen(c.id)} aria-label={`${c.name} details`}>
               <SiteIcon cred={c} depts={depts} />
               <span className="cv-l-main">
                 <span className="cv-l-name"><span>{c.name}</span></span>
-                <span className="cv-l-sub">
-                  {[c.dept, `owned by ${nameOf(c.owner)}`, c.access === "view" && c.username && c.username !== "-" ? c.username : "",
-                    c.tier && c.tier !== "Standard" ? c.tier : "", ACCESS_LABEL[c.access]].filter(Boolean).join(" - ")}
-                </span>
+                <Cells cred={c} now={now} nameOf={nameOf} locked />
               </span>
             </button>
             <span className="cv-l-acts">

@@ -165,7 +165,7 @@ export default function PersonalVault({ myEmail, flash, query = "", addSignal = 
         return (
           <div key={r.id} className="cv-l" data-personal-row={r.id}>
             <span className="cv-l-open is-plain">
-              <Monogram name={r.name} dept="" depts={[]} size={34} />
+              <Monogram name={r.name} dept="" depts={[]} size={28} />
               <span className="cv-l-main">
                 <span className="cv-l-name"><span>{r.name}</span></span>
                 <span className="cv-l-sub">{[hasUser ? r.username : "no username", r.type && r.type !== "Password" ? r.type : "", r.note].filter(Boolean).join(" - ")}</span>
