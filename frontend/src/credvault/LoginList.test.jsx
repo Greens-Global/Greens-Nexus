@@ -59,6 +59,29 @@ describe('LoginList', () => {
     expect(p.onSort).toHaveBeenLastCalledWith('name');
   });
 
+  // The views on the left (11/26/2026): the sentence's phrases as a standing list, then the departments.
+  it('the rail lists the views and the departments; a department narrows the list and a view takes its place', () => {
+    const p = props();
+    render(<LoginList {...p}><button type="button">Personal Section</button></LoginList>);
+    const rail = within(document.querySelector('[data-rail]'));
+    const login = (id) => document.querySelector(`[data-login="${id}"]`);
+    expect(rail.getAllByRole('button').map((b) => b.textContent)).toEqual(
+      ['All Logins3', 'Mine0', 'Shared With Me1', 'Needs Attention1', 'No Backup Owner0', 'Accounting1', 'IT2', 'Personal']);
+    expect(rail.getByRole('button', { name: /All Logins/ }).getAttribute('aria-current')).toBe('true');
+    expect(document.querySelector('[data-title]').textContent).toBe('All Logins - 3 logins');
+    expect(screen.getByRole('button', { name: 'Personal Section' })).toBeTruthy();
+    fireEvent.click(rail.getByRole('button', { name: /Accounting/ }));
+    expect(login('c1')).toBeNull();
+    expect(login('c3')).toBeTruthy();
+    expect(document.querySelector('[data-title]').textContent).toBe('Accounting - 1 login');
+    expect(rail.getByRole('button', { name: /Accounting/ }).getAttribute('aria-current')).toBe('true');
+    expect(rail.getByRole('button', { name: /All Logins/ }).getAttribute('aria-current')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Personal Section' })).toBeNull();   // a narrowed list is company logins only
+    fireEvent.click(rail.getByRole('button', { name: /Needs Attention/ }));          // a view takes the department's place
+    expect(p.onView).toHaveBeenCalledWith('attention');
+    expect(login('c1')).toBeTruthy();
+  });
+
   it('reads Favorites, Recently Used, All; one leading button a row; the rest on the row too', () => {
     const p = props();
     render(<LoginList {...p} />);

@@ -19,10 +19,15 @@
 //     same facts together as the row's second line (Pranshu, 11/25/2026). There
 //     User, Password and Code are their icons alone, named on hover, so the
 //     Status column keeps its room.
+//   - On a computer the views stand on the left (Pranshu, 11/26/2026 - to be
+//     shown to Neil before it merges, since it stands beside "the sentence is
+//     the menu"): the sentence's phrases as a standing list, then every
+//     department with its count. One is in force at a time; the search looks
+//     inside it. A narrow window and a phone keep the sentence.
 // The screen (CredentialVaultApp) owns the data and every gated call; this
 // file lays the list out.
 import { useEffect, useRef, useState } from "react";
-import { Search, X, Star, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, ShieldCheck, Trash2, User } from "lucide-react";
+import { Search, X, Star, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, ShieldCheck, Trash2, User, Lock } from "lucide-react";
 import { ACCESS_LABEL, flagWords, healthFlags, listLogins, sentenceCounts, siteOf, timeLeft, SORTS } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 
@@ -154,7 +159,7 @@ function Sentence({ counts, view, onView, everyone, waiting, onWaiting }) {
   ].filter(Boolean);
   if (everyone) phrases[0][1] = `${counts.open} ${plural(counts.open, "login", "logins")}`;
   return (
-    <span className="cv-sum-phrases" data-sentence="">
+    <span className="cv-sum-phrases cv-narrow" data-sentence="">
       {phrases.map(([key, words, tone], i) => (
         <span key={key}>
           {i > 0 && <span aria-hidden="true"> - </span>}
@@ -171,6 +176,32 @@ function Sentence({ counts, view, onView, everyone, waiting, onWaiting }) {
   );
 }
 
+const VIEWS = [["all", "All Logins"], ["mine", "Mine"], ["shared", "Shared With Me"], ["attention", "Needs Attention"], ["nobackup", "No Backup Owner"]];
+const VIEW_TONE = { attention: "tone-bad", nobackup: "tone-warn" };
+
+/** The views on the left (computers): the sentence's phrases as a standing
+ *  list, then each department. One is in force at a time. */
+function Rail({ counts, depts, view, dept, onView, onDept, waiting, onWaiting, onPersonal }) {
+  const n = { all: counts.open, mine: counts.mine, shared: counts.shared, attention: counts.attention, nobackup: counts.nobackup };
+  const item = (key, label, count, tone, on, pick, Icon) => (
+    <button key={key} type="button" className="cv-rail-item" aria-current={on ? "true" : undefined} onClick={pick}>
+      {Icon && <Icon size={13} aria-hidden="true" />}
+      <span className="cv-rail-name">{label}</span>
+      {count !== "" && <span className={`cv-rail-n ${count > 0 ? tone : ""}`}>{count}</span>}
+    </button>
+  );
+  return (
+    <nav className="cv-rail" aria-label="Views" data-rail="">
+      {VIEWS.map(([key, label]) => item(key, label, n[key], VIEW_TONE[key] || "", view === key && !dept, () => onView(key)))}
+      {waiting > 0 && item("waiting", "Requests Waiting", waiting, "", false, onWaiting)}
+      {depts.length > 0 && <p className="cv-rail-label">Departments</p>}
+      {depts.map(([d, count]) => item(`d:${d}`, d, count, "", dept === d, () => onDept(d)))}
+      <p className="cv-rail-label">Private to You</p>
+      {item("personal", "Personal", "", "", false, onPersonal, Lock)}
+    </nav>
+  );
+}
+
 export default function LoginList({
   rows, depts, favorites, recents, query, onQuery, view, onView, sort, onSort, selectedId, now, nameOf, myEmail, done, clipLeft,
   verified = "", everyone = false, waiting = 0, onWaiting, autoFocus = true,
@@ -180,7 +211,22 @@ export default function LoginList({
   const [showLocked, setShowLocked] = useState(false);
   const box = useRef(null);
   const counts = sentenceCounts(rows, myEmail);
-  const g = listLogins(rows, { view, query, favorites, recents, sort, myEmail, nameOf });
+  // The rail's department: one more way to narrow the whole list. A view picked
+  // anywhere else ("...", a link, the sentence) takes its place.
+  const [dept, setDept] = useState("");
+  if (dept && view !== "all") setDept("");
+  const deptCounts = new Map();
+  rows.forEach((c) => { if (!c.deletedAt && c.canReveal && c.dept) deptCounts.set(c.dept, (deptCounts.get(c.dept) || 0) + 1); });
+  const railDepts = [...deptCounts].sort((a, b) => a[0].localeCompare(b[0]));
+  const deptOn = view === "all" && deptCounts.has(dept) ? dept : "";
+  const pickView = (key) => { setDept(""); onView(key); };
+  const pickDept = (d) => { setDept(d); if (view !== "all") onView("all"); };
+  const pickPersonal = () => {
+    pickView("all");
+    requestAnimationFrame(() => document.querySelector("[data-personal]")?.scrollIntoView?.({ block: "center", behavior: "smooth" }));
+  };
+  const title = deptOn || VIEWS.find(([k]) => k === view)?.[1] || "";
+  const g = listLogins(deptOn ? rows.filter((c) => c.dept === deptOn) : rows, { view, query, favorites, recents, sort, myEmail, nameOf });
   const shown = g.sections.reduce((n, s) => n + s.rows.length, 0);
   const first = g.sections[0]?.rows[0] || g.locked[0] || null;
   const searching = !!query.trim();
@@ -205,6 +251,8 @@ export default function LoginList({
 
   return (
     <div className="cv-one" data-login-list="">
+      <Rail counts={counts} depts={railDepts} view={view} dept={deptOn} onView={pickView} onDept={pickDept} waiting={waiting} onWaiting={onWaiting} onPersonal={pickPersonal} />
+      <div className="cv-main">
       {/* One first row: the search, then "+ New" and "..." at its end - not a row of their own above it. */}
       <div className="cv-top">
       <label className="cv-search">
@@ -233,9 +281,11 @@ export default function LoginList({
             <span aria-hidden="true"> - </span>
             <button type="button" className="cv-sum-btn" onClick={() => onView("all")}>Back to All</button>
           </span>
-        ) : (
-          <Sentence counts={counts} view={view} onView={onView} everyone={everyone} waiting={waiting} onWaiting={onWaiting} />
-        )}
+        ) : (<>
+          <span className="cv-sum-title" data-title=""><strong>{title}</strong> - {shown} {plural(shown, "login", "logins")}</span>
+          <Sentence counts={counts} view={view} onView={pickView} everyone={everyone} waiting={waiting} onWaiting={onWaiting} />
+          {deptOn && <span className="cv-sum-note cv-narrow">{deptOn} only - <button type="button" className="cv-sum-btn" onClick={() => setDept("")}>Show All</button></span>}
+        </>)}
         {sort !== "name" && view !== "trash" && !selecting && (
           <span className="cv-sum-note">sorted by {sortName.toLowerCase()} - <button type="button" className="cv-sum-btn" onClick={() => onSort("name")}>Clear</button></span>
         )}
@@ -265,7 +315,7 @@ export default function LoginList({
       ))}
 
       {/* Personal - its own section of the same list (PersonalVault), on the whole list only. */}
-      <div hidden={view !== "all" || selecting}>{children}</div>
+      <div hidden={view !== "all" || selecting || !!deptOn}>{children}</div>
 
       {g.locked.length > 0 && view === "all" && !selecting && (<>
         <button type="button" className="cv-fold" onClick={() => setShowLocked((v) => !v)} aria-expanded={lockedOpen}>
@@ -288,6 +338,7 @@ export default function LoginList({
           </div>
         ))}
       </>)}
+      </div>
     </div>
   );
 }

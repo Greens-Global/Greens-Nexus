@@ -280,7 +280,8 @@ button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; 
 /* ── The one list (Neil, 11/18/2026): search, sentence, one row per login ────
    No card around the list, no tiles, no tags: hierarchy is type, space and
    hairlines between rows (Neil, 11/17/2026). */
-.cv-one { width: 100%; max-width: 1360px; margin: 0 auto; padding: 6px 0 40px; }
+/* The whole width of the page (Pranshu, 11/26/2026) - no strip in the middle with blank sides. */
+.cv-one { width: 100%; padding: 6px 0 40px; }
 .cv-top { display: flex; align-items: center; gap: 12px; }
 .cv-top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
 .cv-top-actions .primary-btn { display: inline-flex; align-items: center; gap: 6px; }
@@ -341,9 +342,23 @@ button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; 
    fixed tracks (--cv-cols, --cv-acts) - never an auto track, or rows drift.
    By window width, not a container query: container-type would trap the
    fixed-position sheets the list's children open. */
-.cv-head, .cv-c.cv-wide { display: none; }
+.cv-head, .cv-c.cv-wide, .cv-rail, .cv-sum-title { display: none; }
 @media (min-width: 1320px) {
-  .cv-one { --cv-cols: 28px minmax(0, 2.1fr) minmax(0, 1.7fr) minmax(0, 1.15fr) minmax(0, 1.05fr) minmax(0, 2.2fr); --cv-acts: 190px; }
+  .cv-one { --cv-cols: 28px minmax(0, 2fr) minmax(0, 1.7fr) minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1.7fr); --cv-acts: 190px;
+    display: grid; grid-template-columns: 208px minmax(0, 1fr); column-gap: 20px; align-items: start; }
+  /* Views on the left (Pranshu, 11/26/2026): plain words and plain numbers, the one in force tinted like the app's own menu. */
+  .cv-rail { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 8px; padding-top: 2px; }
+  .cv-main { min-width: 0; padding-left: 24px; border-left: 1px solid var(--line); min-height: 420px; }
+  .cv-rail-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: none; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted); text-align: left; cursor: pointer; }
+  .cv-rail-item:hover { background: var(--wk-hover); color: var(--ink); }
+  .cv-rail-item[aria-current="true"] { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 600; }
+  .cv-rail-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .cv-rail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cv-rail-n { font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+  .cv-rail-label { margin: 18px 10px 4px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+  .cv-sum { margin-top: 16px; }
+  .cv-sum-title { display: inline; font-size: 15px; }
+  .cv-sum-title strong { color: var(--ink); font-weight: 600; }
   .cv-head { display: flex; align-items: center; gap: 12px; padding: 4px 8px 8px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 500; color: var(--text-muted); }
   .cv-head-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: var(--cv-cols); column-gap: 14px; align-items: center; }
   .cv-head-cols > :first-child { grid-column: 1 / span 2; }
