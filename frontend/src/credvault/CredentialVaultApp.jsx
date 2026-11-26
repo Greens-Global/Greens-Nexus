@@ -399,6 +399,7 @@ export default function CredentialVaultApp({ activeSub, standalone = false }) {
         verified={verified ? verifiedLabel(otp.until, now) : ""} everyone={isAdmin} waiting={waiting} onWaiting={openWaiting} autoFocus={!isMobile}
         selecting={selecting} checked={checked} onCheck={toggleChecked} onTrashChecked={trashChecked} onDoneSelecting={() => setSelecting(false)}
         onOpen={open} onCopyUser={copyUser} onCopyPassword={copyPassword} onOpenSite={openSite} onCopyCode={copyCode} onRequest={setRequestFor}
+        personalSignal={personalAdd + personalOpen} onPersonal={() => setPersonalOpen((n) => n + 1)}
         // No page title (Neil, 11/06/2026): the module bar names the place. "+ New"
         // and "..." close the search row - one first row, nothing floating above it.
         actions={<><NewButton title="Add a login" items={newItems} onPick={pickNew} compact={isMobile} /><MoreMenu items={moreItems} onPick={pickMore} /></>}>

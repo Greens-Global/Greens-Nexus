@@ -280,19 +280,22 @@ button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; 
 /* ── The one list (Neil, 11/18/2026): search, sentence, one row per login ────
    No card around the list, no tiles, no tags: hierarchy is type, space and
    hairlines between rows (Neil, 11/17/2026). */
-.cv-one { width: 100%; max-width: 860px; margin: 0 auto; padding: 6px 0 40px; }
-.cv-top { display: flex; align-items: flex-end; gap: 14px; }
-.cv-top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding-bottom: 6px; }
+/* The whole width of the page (Pranshu, 11/26/2026) - no strip in the middle with blank sides. */
+.cv-one { width: 100%; padding: 6px 0 40px; }
+.cv-top { display: flex; align-items: center; gap: 12px; }
+.cv-top-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
 .cv-top-actions .primary-btn { display: inline-flex; align-items: center; gap: 6px; }
-.cv-search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 2px 12px; border-bottom: 1px solid var(--line); color: var(--text-muted); cursor: text; }
-.cv-search input { flex: 1; min-width: 0; border: none; outline: none; background: none; font: inherit; font-size: 18px; color: var(--ink); padding: 2px 0; }
+/* The search is a field like every other in Nexus (Pranshu, 11/25/2026) - the bare underlined line read as unfinished. */
+.cv-search { flex: 1; min-width: 0; max-width: 520px; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 10px 0 12px; border: 1px solid var(--border-color); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-muted); cursor: text; transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+.cv-search input { flex: 1; min-width: 0; border: none; outline: none; background: none; font: inherit; font-size: 14px; color: var(--ink); padding: 0; }
 .cv-search input::placeholder { color: var(--text-muted); }
-.cv-search:focus-within { border-bottom-color: var(--wk-brand); }
+.cv-search:focus-within { border-color: var(--wk-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--wk-brand) 16%, transparent); }
 .cv-search kbd { font: 500 11px var(--wk-font); color: var(--text-muted); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
 .cv-search-clear { border: none; background: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; display: inline-flex; }
 .cv-search-clear:hover { color: var(--ink); background: var(--wk-hover); }
 
-.cv-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin: 12px 2px 6px; font-size: 13px; color: var(--muted); }
+.cv-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin: 14px 2px 10px; font-size: 13px; color: var(--muted); }
 .cv-sum-phrases { min-width: 0; }
 .cv-sum-btn { border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-hover); text-underline-offset: 4px; }
 .cv-sum-btn:hover { color: var(--ink); }
@@ -334,6 +337,61 @@ button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; 
   .cv-l:hover .is-x, .cv-l:focus-within .is-x, .cv-l.is-active .is-x { opacity: 1; }
 }
 
+/* The register (Pranshu, 11/25/2026): on a computer a row's facts are aligned
+   columns under one quiet heading row. Every row is its own grid on the SAME
+   fixed tracks (--cv-cols, --cv-acts) - never an auto track, or rows drift.
+   By window width, not a container query: container-type would trap the
+   fixed-position sheets the list's children open. */
+.cv-head, .cv-c.cv-wide, .cv-rail, .cv-sum-title, .cv-personal-btn { display: none; }
+@media (min-width: 1320px) {
+  .cv-one { --cv-cols: 28px minmax(0, 2fr) minmax(0, 1.7fr) minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1.7fr); --cv-acts: 190px;
+    display: grid; grid-template-columns: 208px minmax(0, 1fr); column-gap: 20px; align-items: start; }
+  /* Views on the left (Pranshu, 11/26/2026): plain words and plain numbers, the one in force tinted like the app's own menu. */
+  .cv-rail { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 8px; padding-top: 2px; }
+  .cv-main { min-width: 0; padding-left: 24px; border-left: 1px solid var(--line); min-height: 420px; }
+  .cv-rail-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: none; border-radius: 6px; background: none; font: inherit; font-size: 13px; color: var(--muted); text-align: left; cursor: pointer; }
+  .cv-rail-item:hover { background: var(--wk-hover); color: var(--ink); }
+  .cv-rail-item[aria-current="true"] { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 600; }
+  .cv-rail-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .cv-rail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cv-rail-n { font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+  .cv-rail-label { margin: 18px 10px 4px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+  .cv-sum { margin-top: 16px; }
+  .cv-sum-title { display: inline; font-size: 15px; }
+  .cv-sum-title strong { color: var(--ink); font-weight: 600; }
+  /* Personal is a button beside the title here; its folded line under the last row is for narrow windows and phones. */
+  .cv-sum { align-items: center; }
+  .cv-personal-btn { display: inline-flex; padding: 5px 10px; font-size: 12px; font-weight: 500; cursor: pointer; }
+  .cv-personal-btn[aria-pressed="true"] { background: var(--wk-brand-tint); border-color: var(--wk-brand); color: var(--wk-brand); }
+  .cv-company.is-off, .cv-personal-slot:not(.is-on) { display: none; }
+  .cv-head { display: flex; align-items: center; gap: 12px; padding: 4px 8px 8px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 500; color: var(--text-muted); }
+  .cv-head-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: var(--cv-cols); column-gap: 14px; align-items: center; }
+  .cv-head-cols > :first-child { grid-column: 1 / span 2; }
+  .cv-head-btn { justify-self: start; display: inline-flex; align-items: center; gap: 3px; border: none; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+  .cv-head-btn:hover, .cv-head-btn[aria-pressed="true"] { color: var(--ink); }
+  .cv-head-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
+  .cv-head-acts { width: var(--cv-acts); flex-shrink: 0; }
+  .cv-sec { margin-top: 18px; padding-bottom: 4px; }
+  .cv-l-open { display: grid; grid-template-columns: var(--cv-cols); column-gap: 14px; padding: 9px 0; }
+  .cv-l-main, .cv-l-cells { display: contents; }
+  .cv-l-name { grid-column: 2; }
+  .cv-l-cells .cv-sep, .cv-narrow { display: none; }
+  .cv-c, .cv-c.cv-wide { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); }
+  .cv-c-user { grid-column: 3; color: var(--text-primary); }
+  .cv-c-dept { grid-column: 4; }
+  .cv-c-owner { grid-column: 5; }
+  .cv-c-state { grid-column: 6; }
+  .cv-l.is-locked .cv-c-user { color: var(--muted); }
+  /* Personal rows have one line of words, not cells: it takes the columns after the name. */
+  .cv-l-open.is-plain .cv-l-sub { grid-column: 3 / -1; margin-top: 0; }
+  .cv-l-secret { grid-column: 2 / -1; }
+  .cv-l-acts { width: var(--cv-acts); justify-content: flex-end; }
+  .cv-l[data-personal-row] .cv-l-acts { width: auto; }
+  /* The quiet extras are their icons here (each is named on hover and to a screen reader); the words would take the Status column's room. */
+  .cv-l-btn.is-x .cv-l-word { display: none; }
+  .cv-l-btn.is-x { padding: 6px 7px; }
+}
+
 .cv-fold { display: flex; align-items: center; gap: 8px; width: 100%; padding: 13px 8px; border: none; border-bottom: 1px solid var(--line); background: none; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; text-align: left; }
 .cv-fold:hover { color: var(--ink); background: var(--wk-hover); }
 .cv-fold strong { color: var(--ink); font-weight: 600; }
@@ -356,6 +414,7 @@ button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; 
 
 @media (max-width: 640px) {
   .cv-one { padding-top: 0; }
+  .cv-search { max-width: none; height: 42px; }
   .cv-search input { font-size: 16px; } /* type-ok: 16px stops iOS zooming into the search box */
   .cv-search kbd { display: none; }   /* no "/" key on a phone */
   .cv-top { gap: 10px; }
