@@ -74,7 +74,13 @@ STATUSES = ("active", "ended", "vacant")
 INCOME_TYPES = ("lease", "interest", "loan_payment", "other", "cam")
 DEFAULT_INCOME_ACCOUNTS = ["41101"]
 _PAID_WITHIN = 0.5   # dollars: a payment this close to what was expected is paid in full
-_READS_AT_ONCE = 8   # per-entity ledger reads in flight at once (one per lease, see _receipts)
+_READS_AT_ONCE = 16  # per-entity ledger reads in flight at once (see _receipts)
+# 11/25/2026 (Priyanka, Urmi, Charmi: "MRI has not been working for any of
+# us"): the 11/19 untagged-rent reads took one load from ~40 ledger reads to
+# ~110 (a tenant read, a whole-take read and a payers read per entity); at 8
+# at a time, with the payers waiting for their own round first, the roll ran
+# past the screen's wait and read "Can't reach Nexus". All the reads now go
+# out together, 16 at a time, and the screen waits longer for this one call.
 
 
 def _now() -> str:
@@ -892,14 +898,16 @@ async def _receipts(scope: dict, leases: list[dict], year: int, every: Optional[
     for l in leases:
         if l["entityCode"]:
             income_at.setdefault(l["entityCode"], set()).update(l["incomeAccounts"])
-    payers = await asyncio.gather(*[soft(payers_read(code)) for code in codes])
+    # One gather for everything: the payers reads no longer hold the rest back.
+    results = await asyncio.gather(*[soft(payers_read(code)) for code in codes], *reads)
+    payers, monthly = results[:len(codes)], results[len(codes):]
     for code, data in zip(codes, payers):
         if data is None:
             continue
         out[(code, "*payers")] = {str(r["bucket"]) for r in data.get("rows") or []
                                   if r.get("bucket") and str(r.get("account_no")) in income_at.get(code, set())
                                   and abs((r.get("credit") or 0) - (r.get("debit") or 0)) > _PAID_WITHIN}
-    for (code, cust), data in zip(pairs, await asyncio.gather(*reads)):
+    for (code, cust), data in zip(pairs, monthly):
         if data is None:
             continue
         for r in data.get("rows") or []:

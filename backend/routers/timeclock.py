@@ -1771,8 +1771,19 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
             return True   # no rate row yet = treated as hourly (default)
         return (getattr(r, "pay_type", None) or "hourly") != "fixed"
 
+    # Only OUR STAFF (payroll_staff's rule): an internal identity, or a guest
+    # on payroll. A guest with no pay rate (a family member, an advisor) or an
+    # external never sits on the Time Sheet list (Charmi, 11/25/2026: a family
+    # member's guest login "is external and should not be coming when we open
+    # the timesheet"). Anyone who punched in the period still shows (by_emp).
+    _paid = {(em or "").strip().lower() for em in _rates}
+
+    def _staff(e) -> bool:
+        kind = (getattr(e, "identity_type", "") or "").strip()
+        return kind in payroll_staff.INTERNAL or (kind == "guest" and (e.work_email or "").strip().lower() in _paid)
+
     roster = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all()
-              if e.work_email and _in_roster((e.work_email or "").lower()) and not _left_before(e, start)}
+              if e.work_email and _staff(e) and _in_roster((e.work_email or "").lower()) and not _left_before(e, start)}
     if only_emails is not None:
         roster &= set(only_emails)
 

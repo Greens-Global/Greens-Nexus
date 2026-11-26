@@ -3088,6 +3088,17 @@ html { overflow-x: hidden; }
 .acct-report .acct-grand td { font-weight: 800; border-top: 3px double var(--border-color); background: var(--wk-brand-tint, #e8ecfd); }
 .acct-report .acct-drill { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px; }
 .acct-report .acct-drill:hover { text-decoration-color: var(--wk-brand, #2b45e1); color: var(--wk-brand, #2b45e1); }
+/* Tax forms (Charmi, 11/24/2026, Schedule C / E review: "Add banding. It is
+   spaced out too far wide - can you make it shorter"): the form sits at its
+   own width instead of stretching the line names across the screen, and
+   every other row is shaded so a line reads across to its amount. */
+.acct-report.acct-tax { min-width: 0; }
+.acct-report.acct-tax td.acct-label { max-width: 520px; }
+.acct-report.acct-tax .acct-num { min-width: 120px; }
+.acct-report.acct-tax tbody tr.acct-group td { background: var(--bg-card); font-weight: 600; }
+.acct-report.acct-tax tbody tr:nth-child(even):not(.acct-grand) td { background: color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-card)); }
+.acct-report.acct-tax tbody tr.acct-section:not(.acct-group) td { background: var(--bg-secondary); font-weight: 700; }
+.acct-report.acct-tax tbody tr:hover td { background: var(--bg-secondary); }
 .acct-report .acct-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
 .acct-report .acct-resize:hover { background: var(--wk-brand, #2b45e1); opacity: .35; }
 .acct-report th.acct-head { overflow: visible; }
@@ -10094,7 +10105,10 @@ body:has(.apv-phone) { overflow-x: clip; }
 .ts-pill-live::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--wk-live); }
 
 /* the grid */
-.ts-grid-wrap { overflow: auto; max-height: max(420px, calc(100vh - 170px)); border: 1px solid var(--wk-line2); border-radius: 10px; background: var(--card); overscroll-behavior: contain; }
+/* ONE scroll bar - the page's (Visesh, 11/25/2026: "don't need dual scrolls on
+   anything"). The grid grows to its full height; it scrolls sideways only, on
+   a window too narrow for its columns. */
+.ts-grid-wrap { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--wk-line2); border-radius: 10px; background: var(--card); }
 .ts-grid { width: 100%; min-width: 1120px; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
 .ts-grid th { position: sticky; top: 0; z-index: 3; background: linear-gradient(var(--wk-hover), var(--wk-hover)), var(--card); color: var(--wk-dim); font-size: 12px; font-weight: 700; text-align: left; padding: 8px 10px; white-space: nowrap; border-bottom: 1px solid var(--wk-line2); }
 .ts-grid th.r, .ts-grid td.r { text-align: right; }

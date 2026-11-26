@@ -25,7 +25,7 @@ export default function useSheetKeys({ enabled = true, onPerson, onPeriod }) {
       if (closest(t, FIELD) || closest(t, '[role="dialog"], .modal-overlay')) return;
       if (document.querySelector('.modal-overlay, [role="dialog"][aria-modal="true"]')) return;
       if (t && t !== document.body && closest(t, CONTROL) && !closest(t, '.pr-sidebar')) return;
-      if (closest(t, '.ts-grid-wrap')) return;   // the grid scrolls with every arrow
+      if (closest(t, '.ts-grid-wrap')) return;   // the grid keeps its arrows (it scrolls sideways)
       e.preventDefault();
       if (k === 'ArrowUp' || k === 'ArrowDown') ref.current.onPerson?.(k === 'ArrowDown' ? 1 : -1);
       else ref.current.onPeriod?.(k === 'ArrowRight' ? 1 : -1);
