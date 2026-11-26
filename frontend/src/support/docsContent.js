@@ -1107,7 +1107,7 @@ export const DOCS = [
       {
         title: 'Save Your Own Password',
         steps: [
-          'Click + New > Personal Login, or the Personal line in the list. The first time, choose a Personal Vault password.',
+          'Click + New > Personal Login, or Personal beside the list title (on a phone, the Personal line under the list). The first time, choose a Personal Vault password.',
           'Fill in the name, username and password, then save. No one else can see it.',
           'The vault locks itself when the unlock window ends (Settings > Security), or when you click Lock Now.',
         ],
@@ -1129,7 +1129,7 @@ export const DOCS = [
       { name: 'Breach Check', desc: 'Every saved password is checked against Have I Been Pwned (only the first five characters of a scrambled code leave Nexus, never the password), and again every day. A leaked one shows Found in a Breach, and its owners get a bell. It means that exact password is on public lists of leaked passwords - even one you made up yourself, like a keyboard pattern, is often there. Change it with Generate.' },
       { name: 'Six-Digit Codes', desc: 'A login whose site asks for a 6-digit code can hold its authenticator key. Whoever can open the login sees the current code next to the password (and a Code button on the row), so nobody waits on one person\'s phone.' },
       { name: 'Where From', desc: 'Activity records the network address and browser of every reveal, copy and change.' },
-      { name: 'Personal Vault', desc: 'A folded section of the list. Private, encrypted, locked with your own password (10 characters or more). Each row can carry a link, so Open copies the password and takes you to the site. Reset the vault password with a code if you forget it.' },
+      { name: 'Personal Vault', desc: 'Opened with the Personal button beside the list title on a computer; a folded line under the list on a phone. Private, encrypted, locked with your own password (10 characters or more). Each row can carry a link, so Open copies the password and takes you to the site. Reset the vault password with a code if you forget it.' },
       { name: 'Import and Trash', desc: '+ New > Import From a Spreadsheet: Download the Template first - its Company column lists your companies and its Department column only the departments of the company picked on that row. Any Excel or CSV file you already keep works too: match its columns to ours (guessed from the headers), review what is missing and what the vault already holds, pick a fallback department, a backup owner, a location and who can open them - the department each login lists plus any departments, companies, groups or people you add - and import. Removed logins sit in the Trash (under "...") until recovered or deleted for good. Deleting for good takes two people: whoever moved a login to the trash cannot also erase it while it has another owner - that owner (who gets a bell) or an admin confirms.' },
       { name: 'Activity', desc: 'Under "...". Your own actions and every action on the logins you own or manage, searchable by person, login, action and date. Admins see everything.' },
     ],
@@ -1143,7 +1143,7 @@ export const DOCS = [
     },
     tips: [
       'Star the logins you use most; Favorites keeps them at the top of the list.',
-      'Forgot your Personal Vault password? Click Unlock, then Forgot Password. You will verify with a code first.',
+      'Forgot your Personal Vault password? Click Personal, then Forgot Password. You will verify with a code first.',
     ],
   },
   {
