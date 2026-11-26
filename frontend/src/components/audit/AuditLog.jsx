@@ -24,6 +24,7 @@ import {
   DEFAULT_FILTERS, RANGES, ACTIONS, ACTING_AS_ANY, LEGACY_MODULES,
   filtersFromSearch, searchFromFilters, activeFilterCount, apiParams, rangePhrase,
   groupByDay, dayBuckets, countByDay, relativeTime, exactTime, exactDateTime, legacyRowToEvent, rangeDates,
+  usInstants,
 } from './auditModel';
 
 const PAGE = 50;
@@ -205,7 +206,7 @@ function FeedItem({ ev, selected, onOpen, onOpenTarget, nameOf, index }) {
           <ActionIcon action={ev.action} />
           <span style={{ fontSize: 13, color: ev.action === 'denied' ? 'hsl(var(--color-red))' : 'var(--ink)', minWidth: 0, overflowWrap: 'anywhere' }}>{ev.title}</span>
         </div>
-        {ev.summary && <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>{ev.summary}</div>}
+        {ev.summary && <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>{usInstants(ev.summary)}</div>}
         {preview.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2, minWidth: 0 }}>
             {preview.map((c, i) => <ChangePreview key={`${c.field}-${i}`} change={c} action={ev.action} />)}

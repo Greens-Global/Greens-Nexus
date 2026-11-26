@@ -275,9 +275,11 @@ export default function PortfoliosView({ onNavigate, actions }) {
           {/* The module's Manage / Create (views/Tasks.jsx), on a computer. */}
           {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions(null)}</div>}
         </div>
-        {/* Search · Show archived - one line on mobile */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
-          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
+        {/* On a phone the search takes a line of its own and the rest wraps
+            under it (11/26/2026): one unwrapped row squeezed the search to an
+            empty pill and pushed List / Grid off the screen. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
             <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search portfolios…"
               style={{ ...inputStyle, paddingLeft: 40, paddingTop: isMobile ? 8 : 10, paddingBottom: isMobile ? 8 : 10, borderRadius: 999 }} />

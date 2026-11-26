@@ -29,7 +29,7 @@ const api = vi.hoisted(() => ({
 vi.mock('../../api', () => ({ api, saveBlob: vi.fn() }));
 
 const AuditLog = (await import('./AuditLog')).default;
-const { diffWords, filtersFromSearch, searchFromFilters } = await import('./auditModel');
+const { diffWords, filtersFromSearch, searchFromFilters, formatValue, shortValue } = await import('./auditModel');
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/admin-console/audit');
@@ -127,6 +127,18 @@ describe('AuditLog', () => {
 });
 
 describe('auditModel', () => {
+  // A setting's stored JSON carries instants; they read as US dates, never raw ISO.
+  it('prints an instant inside a stored value as a US date and time', () => {
+    const us = /11\/26\/2026, \d{1,2}:\d{2} (AM|PM)/;
+    for (const s of [formatValue({ at: '2026-11-26T12:00:28.402362+00:00', keys: ['a'] }, 'json'),
+      formatValue('{"at": "2026-11-26T12:00:28Z"}', 'json'), formatValue('Seen 2026-11-26T12:00:28+00:00', 'text'),
+      shortValue({ at: '2026-11-26T12:00:28.402362+00:00' }, 'json')]) {
+      expect(s).toMatch(us);
+      expect(s).not.toMatch(/\dT\d/);
+    }
+    expect(formatValue('Unit 2026-A, door T12', 'text')).toBe('Unit 2026-A, door T12');   // only a real instant changes
+  });
+
   it('diffs words', () => {
     expect(diffWords('Status is open', 'Status is closed')).toEqual([
       { type: 'same', text: 'Status is ' }, { type: 'del', text: 'open' }, { type: 'add', text: 'closed' },
