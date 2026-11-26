@@ -65,7 +65,7 @@ describe('Passwords', () => {
     // Olive owns Stripe (no backup owner); Ben asks for it; Jira is not hers to open.
     expect(sentence().textContent).toBe('1 you can open - 1 yours - 1 has no backup owner - 1 request waiting');
     expect(screen.getByText(/Verified until/)).toBeTruthy();
-    expect(within(document.querySelector('.cv-main')).getByRole('button', { name: /Personal/ })).toBeTruthy();   // folded and locked, in the same list
+    expect(document.querySelector('.cv-main [data-personal="locked"] button')).toBeTruthy();   // folded and locked, in the same list
   });
 
   it('copies from the row, never shows the password, and opens the login as a sheet', async () => {
@@ -146,7 +146,7 @@ describe('Passwords', () => {
     fireEvent.click(screen.getByRole('button', { name: '1 needs attention' }));
     expect(row('c1')).toBeNull();
     expect(row('c4')).toBeTruthy();
-    expect(within(document.querySelector('.cv-main')).queryByRole('button', { name: /Personal/ })).toBeNull();   // a filtered list is company logins only
+    expect(document.querySelector('.cv-personal-slot').hidden).toBe(true);            // a filtered list is company logins only
     fireEvent.click(screen.getByRole('button', { name: '1 needs attention' }));
     expect(row('c1')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '1 yours' }));

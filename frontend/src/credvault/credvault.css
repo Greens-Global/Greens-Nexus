@@ -342,7 +342,7 @@ button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; 
    fixed tracks (--cv-cols, --cv-acts) - never an auto track, or rows drift.
    By window width, not a container query: container-type would trap the
    fixed-position sheets the list's children open. */
-.cv-head, .cv-c.cv-wide, .cv-rail, .cv-sum-title { display: none; }
+.cv-head, .cv-c.cv-wide, .cv-rail, .cv-sum-title, .cv-personal-btn { display: none; }
 @media (min-width: 1320px) {
   .cv-one { --cv-cols: 28px minmax(0, 2fr) minmax(0, 1.7fr) minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1.7fr); --cv-acts: 190px;
     display: grid; grid-template-columns: 208px minmax(0, 1fr); column-gap: 20px; align-items: start; }
@@ -359,6 +359,11 @@ button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; 
   .cv-sum { margin-top: 16px; }
   .cv-sum-title { display: inline; font-size: 15px; }
   .cv-sum-title strong { color: var(--ink); font-weight: 600; }
+  /* Personal is a button beside the title here; its folded line under the last row is for narrow windows and phones. */
+  .cv-sum { align-items: center; }
+  .cv-personal-btn { display: inline-flex; padding: 5px 10px; font-size: 12px; font-weight: 500; cursor: pointer; }
+  .cv-personal-btn[aria-pressed="true"] { background: var(--wk-brand-tint); border-color: var(--wk-brand); color: var(--wk-brand); }
+  .cv-company.is-off, .cv-personal-slot:not(.is-on) { display: none; }
   .cv-head { display: flex; align-items: center; gap: 12px; padding: 4px 8px 8px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 500; color: var(--text-muted); }
   .cv-head-cols { flex: 1; min-width: 0; display: grid; grid-template-columns: var(--cv-cols); column-gap: 14px; align-items: center; }
   .cv-head-cols > :first-child { grid-column: 1 / span 2; }

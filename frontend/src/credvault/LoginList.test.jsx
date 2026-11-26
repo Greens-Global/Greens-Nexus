@@ -66,7 +66,7 @@ describe('LoginList', () => {
     const rail = within(document.querySelector('[data-rail]'));
     const login = (id) => document.querySelector(`[data-login="${id}"]`);
     expect(rail.getAllByRole('button').map((b) => b.textContent)).toEqual(
-      ['All Logins3', 'Mine0', 'Shared With Me1', 'Needs Attention1', 'No Backup Owner0', 'Accounting1', 'IT2', 'Personal']);
+      ['All Logins3', 'Mine0', 'Shared With Me1', 'Needs Attention1', 'No Backup Owner0', 'Accounting1', 'IT2']);
     expect(rail.getByRole('button', { name: /All Logins/ }).getAttribute('aria-current')).toBe('true');
     expect(document.querySelector('[data-title]').textContent).toBe('All Logins - 3 logins');
     expect(screen.getByRole('button', { name: 'Personal Section' })).toBeTruthy();
@@ -80,6 +80,26 @@ describe('LoginList', () => {
     fireEvent.click(rail.getByRole('button', { name: /Needs Attention/ }));          // a view takes the department's place
     expect(p.onView).toHaveBeenCalledWith('attention');
     expect(login('c1')).toBeTruthy();
+  });
+
+  // Personal is a button beside the title on a computer (11/26/2026): it shows that section alone.
+  it('the Personal button shows the Personal section alone, and a view brings the company logins back', () => {
+    const p = { ...props(), onPersonal: vi.fn() };
+    render(<LoginList {...p}><button type="button">Personal Section</button></LoginList>);
+    const off = () => [...document.querySelectorAll('.cv-company')].every((el) => el.className.includes('is-off'));
+    const btn = screen.getByRole('button', { name: 'Personal' });
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(off()).toBe(false);
+    fireEvent.click(btn);
+    expect(p.onPersonal).toHaveBeenCalledTimes(1);                                   // the section unlocks first when it has to
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(off()).toBe(true);
+    expect(document.querySelector('.cv-personal-slot').className).toContain('is-on');
+    expect(document.querySelector('[data-title]').textContent).toBe('Personal - private to you');
+    expect(document.querySelector('[data-rail] [aria-current]')).toBeNull();
+    fireEvent.click(within(document.querySelector('[data-rail]')).getByRole('button', { name: /All Logins/ }));
+    expect(off()).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('reads Favorites, Recently Used, All; one leading button a row; the rest on the row too', () => {
