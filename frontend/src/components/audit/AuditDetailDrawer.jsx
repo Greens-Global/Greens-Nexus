@@ -13,7 +13,7 @@ import { useScrollLock } from '../../lib/useScrollLock';
 import { useDialogFocus } from '../../lib/useDialogFocus';
 import { useBackToClose } from '../../lib/useBackToClose';
 import { PersonAvatar, ModuleBadge, ActAsBadge, ActionIcon, ChangesTable, AMBER, AMBER_BG } from './AuditParts';
-import { exactDateTime, relativeTime } from './auditModel';
+import { exactDateTime, relativeTime, usInstants } from './auditModel';
 
 const label = { fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '.02em' };
 const sectionTitle = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '22px 0 8px' };
@@ -88,7 +88,7 @@ function EventBody({ ev, detail, loading, error, nameOf, onOpenTarget, onOpenRel
         {full.actingAs && <ActAsBadge name={nameOf(full.actingAs.email, full.actingAs.name)} />}
       </div>
       <ActAsNote ev={full} nameOf={nameOf} />
-      {full.summary && <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, margin: '14px 0 0' }}>{full.summary}</p>}
+      {full.summary && <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, margin: '14px 0 0' }}>{usInstants(full.summary)}</p>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px 18px', marginTop: 16, padding: 14, border: '1px solid var(--line)', borderRadius: 10 }}>
         <Fact name="When">{exactDateTime(full.at)}<span style={{ color: 'var(--muted)' }}> ({relativeTime(full.at)})</span></Fact>

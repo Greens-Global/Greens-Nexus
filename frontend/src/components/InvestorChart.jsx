@@ -284,7 +284,8 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
             </button>
           ))}
         </div>
-        <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 11, color: 'var(--muted)', pointerEvents: 'none' }}>
+        {/* right: keeps the words clear of the zoom control on a narrow screen */}
+        <span style={{ position: 'absolute', left: 14, right: 150, bottom: 14, fontSize: 11, color: 'var(--muted)', pointerEvents: 'none' }}>
           Drag the canvas to move around · drag an investor onto an owner to re-assign
         </span>
       </div>

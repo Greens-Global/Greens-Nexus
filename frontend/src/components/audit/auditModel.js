@@ -231,6 +231,12 @@ export function htmlToText(html) {
 
 const isEmptyValue = (v) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 
+// An instant inside a stored value ("2026-11-26T13:09:28.402362+00:00" in a
+// setting's JSON) reads as a US date and time like every other one on the
+// screen - never raw ISO text (11/26/2026).
+const ISO_INSTANT = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+export const usInstants = (s) => s.replace(ISO_INSTANT, (m) => formatDateTime(toInstant(m), m));
+
 // One value as words, by its kind. null = nothing there (the caller shows "Empty").
 export function formatValue(v, kind) {
   if (kind === 'redacted') return 'Hidden for privacy';
@@ -246,9 +252,9 @@ export function formatValue(v, kind) {
   }
   if (kind === 'html') return htmlToText(v);
   if (kind === 'json' || typeof v === 'object') {
-    try { return JSON.stringify(typeof v === 'string' ? JSON.parse(v) : v, null, 2); } catch { return String(v); }
+    try { return usInstants(JSON.stringify(typeof v === 'string' ? JSON.parse(v) : v, null, 2)); } catch { return usInstants(String(v)); }
   }
-  return String(v);
+  return usInstants(String(v));
 }
 
 // A one-line preview of a value for the feed ("In Progress").
