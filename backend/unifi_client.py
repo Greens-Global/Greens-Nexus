@@ -20,7 +20,8 @@ async def unifi_get(path: str):
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(url, headers=HEADERS)
     if r.status_code == 401:
-        raise HTTPException(401, "Invalid UniFi API key")
+        # UniFi refusing OUR key is not the caller's sign-in: 424, never 401 (11/26/2026).
+        raise HTTPException(424, "UniFi rejected the Nexus API key - check UNIFI_API_KEY on the server")
     if r.status_code == 403:
         raise HTTPException(403, "Forbidden - check UniFi API key permissions")
     if not r.is_success:

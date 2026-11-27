@@ -260,6 +260,10 @@ class VaultAccessTests(unittest.TestCase):
     def test_personal_vault_password_is_ten_characters_or_more(self):
         self.assertEqual(self._as(PEER).post("/credvault/personal/lock/setup", json={"password": "short12"}).status_code, 400)
         self.assertEqual(self._as(PEER).post("/credvault/personal/lock/setup", json={"password": "long-enough-1"}).status_code, 200)
+        # A wrong password is a refusal, never a 401 - the app reads a 401 as a dead sign-in (11/26/2026).
+        wrong = self._as(PEER).post("/credvault/personal/lock/verify", json={"password": "not-the-password"})
+        self.assertEqual((wrong.status_code, wrong.json()["detail"]), (400, "Incorrect password"))
+        self.assertEqual(self._as(PEER).post("/credvault/personal/lock/verify", json={"password": "long-enough-1"}).status_code, 200)
 
     def test_import_skips_what_the_vault_holds_and_sets_backup_and_audience(self):
         self._create(name="Zoom Admin", username="it@x.com")

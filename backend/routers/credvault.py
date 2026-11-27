@@ -2015,7 +2015,8 @@ def personal_lock_verify(body: PersonalAuthIn, user: dict = Depends(get_current_
     if not row or not row.password_hash:
         raise HTTPException(400, "No Personal Vault password set yet")
     if not _verify_password(body.password or "", row.password_hash):
-        raise HTTPException(401, "Incorrect password")
+        # 400, never 401: the app reads a 401 as a dead sign-in (11/26/2026).
+        raise HTTPException(400, "Incorrect password")
     ttl = _open_personal_unlock(db, user["email"])
     db.commit()
     return {"ok": True, "expiresInSec": ttl}

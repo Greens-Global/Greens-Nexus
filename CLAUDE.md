@@ -144,6 +144,14 @@ keep the diff minimal.
   handoff - a single-use code plus a PKCE verifier, Build Mode grant
   checked at both ends, dev API only. Never register preview addresses in
   Entra, never point a preview at production.
+- **A 401 is read by the app as a dead sign-in** (11/26/2026,
+  `frontend/src/lib/session401.js`): only the sign-in check's own answers
+  (`auth.py`, worded as that file expects) and the level gates'
+  "Insufficient permissions" may be a 401. A route's own refusal - a wrong
+  password or code, an outside service rejecting OUR key - answers 400, 403
+  or 424, never 401: a 401 the app does not recognize is sent again with a
+  fresh token and then leaves the page for Microsoft sign-in.
+  `test_session_401.py` pins the wording.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
